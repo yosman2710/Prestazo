@@ -9,6 +9,10 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../../navegation/type';
 
 const mockLoans = [
   {
@@ -52,6 +56,7 @@ const mockLoans = [
 const filters = ['Todos', 'Activos', 'Vencidos', 'Pagados'];
 
 export default function LoanListScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [search, setSearch] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('Todos');
 
@@ -62,7 +67,7 @@ export default function LoanListScreen() {
   });
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Préstamos</Text>
       <Text style={styles.subtitle}>{filteredLoans.length} préstamos encontrados</Text>
 
@@ -122,10 +127,11 @@ export default function LoanListScreen() {
         )}
       />
 
-      <TouchableOpacity style={styles.newButton}>
+      <TouchableOpacity style={styles.newButton}
+       onPress={() => navigation.navigate('CreateLoan')}>
         <Text style={styles.newButtonText}>+ Nuevo</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 

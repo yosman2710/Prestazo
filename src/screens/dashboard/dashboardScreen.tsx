@@ -1,6 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { ScrollView } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../../navegation/type'; // ajusta la ruta si lo tienes en otro lado
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+
 
 
 type PrestamoVencido = {
@@ -21,6 +27,8 @@ const prestamosPorVencer: PrestamoVencido[] = [
 const prestamosActivos = 23;
 
 export default function DashboardScreen() {
+const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
   return (
     <FlatList
       data={prestamosPorVencer}
@@ -33,7 +41,7 @@ export default function DashboardScreen() {
         </View>
       )}
       ListHeaderComponent={
-        <View style={styles.headerContainer}>
+        <SafeAreaView style={styles.headerContainer}>
           <Text style={styles.title}>Prestazo</Text>
 
           {/* Tarjetas de resumen */}
@@ -65,18 +73,26 @@ export default function DashboardScreen() {
 </View>
           {/* Sección de vencimientos */}
           <Text style={styles.sectionTitle}>Préstamos por vencer</Text>
-        </View>
+        </SafeAreaView>
       }
       ListFooterComponent={
         <View style={styles.footerContainer}>
           <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.buttonYellow}>
+            <TouchableOpacity
+              style={styles.buttonYellow}
+              onPress={() => navigation.navigate('CreateLoan')}
+            >
               <Text style={styles.buttonText}>+ Nuevo Préstamo</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.buttonYellow}>
+
+            <TouchableOpacity
+              style={styles.buttonYellow}
+              onPress={() => console.log('Ir a registrar pago')}
+            >
               <Text style={styles.buttonText}>$ Registrar Pago</Text>
             </TouchableOpacity>
+
           </View>
         </View>
       }
@@ -97,6 +113,10 @@ const styles = StyleSheet.create({
   footerContainer: {
     marginTop: 20,
     marginBottom: 40,
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+
   },
   title: {
     fontSize: 24,
