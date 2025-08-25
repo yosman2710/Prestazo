@@ -4,24 +4,47 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   ScrollView,
+  Alert,
 } from 'react-native';
+import styles from '../../style/client/createClientStyle';
+import { useNavigation } from '@react-navigation/native';
+import { useSQLiteContext } from 'expo-sqlite';
 
 export default function CreateClientScreen() {
+  const navigation = useNavigation();
+  const db = useSQLiteContext(); // ← necesario para pasar contexto
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [note, setNote] = useState('');
+  // Verifica si la base de datos está lista
 
-  const handleSave = () => {
-    console.log({ name, phone, address, note });
-    // Aquí puedes guardar el cliente en tu base de datos o estado
+  const handleSave = async () => {
+    if (!name || !phone) {
+      Alert.alert('Campos obligatorios', 'Por favor completa nombre y teléfono');
+      return;
+    }
+
+    try {
+      await db.runAsync(
+        `INSERT INTO clientes (nombre, fecha_ingreso, telefono, direccion, nota) VALUES (?, ?, ?, ?, ?)`,
+        [name, new Date().toISOString(), phone, address, note]
+      );
+      setName('');
+      setPhone('');
+      setAddress('');
+      setNote('');
+      Alert.alert('Éxito', 'Cliente guardado correctamente');
+      navigation.goBack();
+    } catch (error) {
+      console.error('Error al guardar cliente:', error);
+      Alert.alert('Error', 'No se pudo guardar el cliente');
+    }
   };
 
   return (
     <ScrollView style={styles.container}>
-
       <View style={styles.card}>
         <Text style={styles.label}>Nombre completo *</Text>
         <TextInput
@@ -64,45 +87,3 @@ export default function CreateClientScreen() {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#E6F4F1',
-    padding: 16,
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 6,
-    marginTop: 12,
-  },
-  input: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    fontSize: 14,
-    color: '#333',
-  },
-  saveButton: {
-    backgroundColor: '#2196F3',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  saveText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-});
