@@ -1,70 +1,159 @@
-// LoanListScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   FlatList,
-  StyleSheet,
   ScrollView,
+  Alert,
+  StyleSheet
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navegation/type';
+import { useSQLiteContext } from 'expo-sqlite';
 
-const mockLoans = [
-  {
-    id: '1',
-    client: 'María González',
-    amount: 5000,
-    balance: 3200,
-    dueDate: '2024-03-01',
-    interest: 15,
-    status: 'Activo',
-  },
-  {
-    id: '2',
-    client: 'Carlos Pérez',
-    amount: 3000,
-    balance: 0,
-    dueDate: '2024-01-15',
-    interest: 12,
-    status: 'Pagado',
-  },
-  {
-    id: '3',
-    client: 'Ana Torres',
-    amount: 4500,
-    balance: 4500,
-    dueDate: '2024-05-10',
-    interest: 18,
-    status: 'Vencido',
-  },
-  {
-    id: '4',
-    client: 'Luis Mendoza',
-    amount: 2000,
-    balance: 1500,
-    dueDate: '2024-04-20',
-    interest: 10,
-    status: 'Activo',
-  },
-];
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const filters = ['Todos', 'Activos', 'Vencidos', 'Pagados'];
+type PrestamoResumen = {
+  id: string;
+  client: string;
+  amount: number;
+  interest: number;
+  totalPagado: number;
+  dueDate: string;
+  status: string;
+};
 
 export default function LoanListScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NavigationProp>();
+  const db = useSQLiteContext();
   const [search, setSearch] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('Todos');
+  const [loans, setLoans] = useState<
+    (PrestamoResumen & { total: number; balance: number })[]
+  >([]);
+  const [loading, setLoading] = useState(true);
 
-  const filteredLoans = mockLoans.filter((loan) => {
+  const actualizarEstadosPrestamos = async () => {
+    try {
+      const hoy = new Date();
+
+      const prestamos = await db.getAllAsync(
+        `SELECT id, monto, interes, total_pagado, fecha_vencimiento
+         FROM prestamos
+         WHERE estado != 'Pagado'`
+      ) as {
+        id: number;
+        monto: number;
+        interes: number;
+        total_pagado: number;
+        fecha_vencimiento: string;
+      }[];
+
+      for (const p of prestamos) {
+        const totalEsperado = p.monto + (p.monto * p.interes) / 100;
+        const vencido = new Date(p.fecha_vencimiento) < hoy;
+        const pagado = p.total_pagado >= totalEsperado;
+
+        let nuevoEstado = 'Activo';
+        if (pagado) nuevoEstado = 'Pagado';
+        else if (vencido) nuevoEstado = 'Vencido';
+
+        await db.runAsync(`UPDATE prestamos SET estado = ? WHERE id = ?`, [
+          nuevoEstado,
+          p.id,
+        ]);
+      }
+    } catch (error) {
+      console.error('Error actualizando estados de préstamos:', error);
+    }
+  };
+
+  const cargarPrestamos = async () => {
+    try {
+      const rows = await db.getAllAsync(`
+        SELECT 
+          p.id,
+          c.nombre AS client,
+          p.monto,
+          p.total_pagado,
+          p.fecha_vencimiento AS dueDate,
+          p.interes,
+          p.estado AS status
+        FROM prestamos p
+        JOIN clientes c ON c.id = p.cliente_id
+        ORDER BY p.fecha_vencimiento ASC
+      `) as {
+        id: number;
+        client: string;
+        monto: number;
+        total_pagado: number;
+        dueDate: string;
+        interes: number;
+        status: string;
+      }[];
+
+      const transformados = rows.map((p) => {
+        const total = p.monto + (p.monto * p.interes) / 100;
+        const balance = total - p.total_pagado;
+
+        return {
+          id: p.id.toString(),
+          client: p.client,
+          amount: p.monto,
+          interest: p.interes,
+          totalPagado: p.total_pagado,
+          dueDate: p.dueDate,
+          status: p.status,
+          total,
+          balance,
+        };
+      });
+
+      setLoans(transformados);
+    } catch (error) {
+      console.error('Error al cargar préstamos:', error);
+      Alert.alert('Error', 'No se pudieron cargar los préstamos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      actualizarEstadosPrestamos();
+      cargarPrestamos();
+    }, [])
+  );
+
+  const filteredLoans = loans.filter((loan) => {
     const matchSearch = loan.client.toLowerCase().includes(search.toLowerCase());
     const matchFilter = selectedFilter === 'Todos' || loan.status === selectedFilter;
     return matchSearch && matchFilter;
   });
+
+  const formatearFecha = (iso: string) => {
+    const fecha = new Date(iso);
+    return `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1)
+      .toString()
+      .padStart(2, '0')}/${fecha.getFullYear()}`;
+  };
+
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case 'Activo':
+        return { backgroundColor: '#4CAF50' };
+      case 'Vencido':
+        return { backgroundColor: '#F44336' };
+      case 'Pagado':
+        return { backgroundColor: '#2196F3' };
+      default:
+        return { backgroundColor: '#9E9E9E' };
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -79,7 +168,7 @@ export default function LoanListScreen() {
       />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterContainer}>
-        {filters.map((filter) => (
+        {['Todos', 'Activo', 'Vencido', 'Pagado'].map((filter) => (
           <TouchableOpacity
             key={filter}
             style={[
@@ -100,53 +189,60 @@ export default function LoanListScreen() {
         ))}
       </ScrollView>
 
-      <FlatList
-        data={filteredLoans}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.clientName}>{item.client}</Text>
-              <Text style={[styles.status, getStatusStyle(item.status)]}>
-                {item.status}
-              </Text>
+      {filteredLoans.length === 0 ? (
+        <Text style={{ textAlign: 'center', marginTop: 40, color: '#555' }}>
+          No hay préstamos registrados.
+        </Text>
+      ) : (
+        <FlatList
+          data={filteredLoans}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.clientName}>{item.client}</Text>
+                <Text style={[styles.status, getStatusStyle(item.status)]}>
+                  {item.status}
+                </Text>
+              </View>
+              <Text style={styles.cardText}>Monto Total: ${item.total.toFixed(2)}</Text>
+              <Text style={styles.cardText}>Saldo Pendiente: ${item.balance.toFixed(2)}</Text>
+              <Text style={styles.cardText}>Fecha Vencimiento: {formatearFecha(item.dueDate)}</Text>
+              <Text style={styles.cardText}>Interés: {item.interest}%</Text>
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  style={styles.detailButton}
+                  onPress={() =>
+                    navigation.navigate('LoanDetailScreen', { prestamoId: item.id })
+                  }
+                >
+                  <Text style={styles.detailButtonText}>Ver Detalle</Text>
+                </TouchableOpacity>
+                {item.status !== 'Pagado' && (
+                  <TouchableOpacity
+                    style={styles.payButton}
+                    onPress={() =>
+                      navigation.navigate('RegisterPayment', { prestamoId: item.id })
+                    }
+                  >
+                    <Text style={styles.payButtonText}>Pago</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
-            <Text style={styles.cardText}>Monto Prestado: ${item.amount}</Text>
-            <Text style={styles.cardText}>Saldo Actual: ${item.balance}</Text>
-            <Text style={styles.cardText}>Fecha Vencimiento: {item.dueDate}</Text>
-            <Text style={styles.cardText}>Interés: {item.interest}%</Text>
-            <View style={styles.buttonRow}>
-              <TouchableOpacity style={styles.detailButton}>
-                <Text style={styles.detailButtonText}>Ver Detalle</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.payButton}>
-                <Text style={styles.payButtonText}>Pago</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      />
+          )}
+        />
+      )}
 
-      <TouchableOpacity style={styles.newButton}
-       onPress={() => navigation.navigate('CreateLoan')}>
+      <TouchableOpacity
+        style={styles.newButton}
+        onPress={() => navigation.navigate('CreateLoan')}
+      >
         <Text style={styles.newButtonText}>+ Nuevo</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
-
-const getStatusStyle = (status: string) => {
-  switch (status) {
-    case 'Activo':
-      return { backgroundColor: '#4CAF50' };
-    case 'Vencido':
-      return { backgroundColor: '#F44336' };
-    case 'Pagado':
-      return { backgroundColor: '#2196F3' };
-    default:
-      return { backgroundColor: '#9E9E9E' };
-  }
-};
 
 const styles = StyleSheet.create({
   container: {

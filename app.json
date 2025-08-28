@@ -2,7 +2,7 @@
   "expo": {
     "name": "Prestazo",
     "slug": "Prestazo",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -20,13 +20,14 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.yosman2710.Prestazo"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-       [
+      [
         "expo-sqlite",
         {
           "enableFTS": true,
@@ -36,10 +37,18 @@
             "useSQLCipher": false
           },
           "ios": {
-            "customBuildFlags": ["-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_ENABLE_SNAPSHOT=1"]
+            "customBuildFlags": [
+              "-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_ENABLE_SNAPSHOT=1"
+            ]
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ae718034-73ec-435b-9716-b608cd8dfa3a"
+      }
+    },
+    "owner": "yosman2710"
   }
 }

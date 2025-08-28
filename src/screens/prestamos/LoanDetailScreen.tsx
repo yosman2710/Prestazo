@@ -1,54 +1,48 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
+  StyleSheet,
   TouchableOpacity,
 } from 'react-native';
-
-const pagosRealizados = ['2024-01-14', '2024-02-14', '2024-03-14'];
-const pagosEsperados = [
-  '2024-01-14',
-  '2024-02-14',
-  '2024-03-14',
-  '2024-04-14',
-  '2024-05-14',
-  '2024-06-14',
-  '2024-07-14',
-];
-
-const historialPagos = [
-  { fecha: '14/01/2024', monto: 500 },
-  { fecha: '14/02/2024', monto: 500 },
-  { fecha: '14/03/2024', monto: 500 },
-];
-
-const obtenerDiasDelMes = (mes: number, año: number) => {
-  const dias: { fecha: string; dia: number }[] = [];
-  const primerDia = new Date(año, mes - 1, 1);
-  const ultimoDia = new Date(año, mes, 0);
-  const totalDias = ultimoDia.getDate();
-  const offset = primerDia.getDay(); // 0 = domingo
-
-  for (let i = 0; i < offset; i++) {
-    dias.push({ fecha: '', dia: 0 });
-  }
-
-  for (let d = 1; d <= totalDias; d++) {
-    const fecha = new Date(año, mes - 1, d);
-    dias.push({
-      fecha: fecha.toISOString().slice(0, 10),
-      dia: d,
-    });
-  }
-
-  return dias;
-};
+import { useRoute } from '@react-navigation/native';
+import { RouteProp } from '@react-navigation/native';
+import { useSQLiteContext } from 'expo-sqlite';
+import { RootStackParamList } from '../../navegation/type';
 
 export default function LoanDetailScreen() {
-  const [mesActual, setMesActual] = useState(1); // Enero
-  const [añoActual, setAñoActual] = useState(2024);
+  const route = useRoute<RouteProp<RootStackParamList, 'LoanDetailScreen'>>();
+  const db = useSQLiteContext();
+  const { prestamoId } = route.params;
+
+  const [prestamo, setPrestamo] = useState<any>(null);
+  const [pagos, setPagos] = useState<{ fecha: string; monto: number }[]>([]);
+  const [mesActual, setMesActual] = useState(new Date().getMonth() + 1);
+  const [añoActual, setAñoActual] = useState(new Date().getFullYear());
+
+  useEffect(() => {
+    const cargarDatos = async () => {
+      try {
+        const p = await db.getFirstAsync(
+          `SELECT p.*, c.nombre AS cliente FROM prestamos p JOIN clientes c ON c.id = p.cliente_id WHERE p.id = ?`,
+          [prestamoId]
+        );
+        setPrestamo(p);
+
+        const pagosRealizados = await db.getAllAsync(
+  `SELECT fecha, monto FROM pagos WHERE prestamo_id = ? ORDER BY fecha ASC`,
+  [prestamoId]
+) as { fecha: string; monto: number }[];
+
+        setPagos(pagosRealizados);
+      } catch (error) {
+        console.error('Error al cargar préstamo:', error);
+      }
+    };
+
+    cargarDatos();
+  }, []);
 
   const avanzarMes = () => {
     if (mesActual === 12) {
@@ -68,6 +62,72 @@ export default function LoanDetailScreen() {
     }
   };
 
+  const obtenerDiasDelMes = (mes: number, año: number) => {
+    const dias: { fecha: string; dia: number }[] = [];
+    const primerDia = new Date(año, mes - 1, 1);
+    const ultimoDia = new Date(año, mes, 0);
+    const totalDias = ultimoDia.getDate();
+    const offset = primerDia.getDay();
+
+    for (let i = 0; i < offset; i++) {
+      dias.push({ fecha: '', dia: 0 });
+    }
+
+    for (let d = 1; d <= totalDias; d++) {
+      const fecha = new Date(año, mes - 1, d);
+      dias.push({
+        fecha: fecha.toISOString().slice(0, 10),
+        dia: d,
+      });
+    }
+
+    return dias;
+  };
+
+  const generarFechasEsperadas = (
+    inicio: string,
+    frecuencia: string,
+    cuotas: number
+  ): string[] => {
+    const fechas: string[] = [];
+    const base = new Date(inicio);
+    const diasPorCuota = {
+      Diario: 1,
+      Semanal: 7,
+      Quincenal: 15,
+      Mensual: 30,
+    };
+  const incremento = diasPorCuota[frecuencia as keyof typeof diasPorCuota] ?? 0;
+
+    for (let i = 0; i < cuotas; i++) {
+      const fecha = new Date(base);
+      fecha.setDate(base.getDate() + i * incremento);
+      fechas.push(fecha.toISOString().slice(0, 10));
+    }
+
+    return fechas;
+  };
+
+  const formatearFecha = (iso: string) => {
+    const fecha = new Date(iso);
+    return `${fecha.getDate().toString().padStart(2, '0')}/${
+      (fecha.getMonth() + 1).toString().padStart(2, '0')
+    }/${fecha.getFullYear()}`;
+  };
+
+  if (!prestamo) return null;
+  const montoTotal = prestamo.monto + (prestamo.monto * prestamo.interes) / 100;
+const saldoPendiente = montoTotal - prestamo.total_pagado;
+
+
+  const pagosEsperados = generarFechasEsperadas(
+    prestamo.fecha_inicio,
+    prestamo.frecuencia,
+    prestamo.cantidad_cuotas
+  );
+
+  const pagosRealizadosFechas = pagos.map((p) => p.fecha.slice(0, 10));
+  const progreso = Math.round((pagos.length / prestamo.cantidad_cuotas) * 100);
   const diasDelMes = obtenerDiasDelMes(mesActual, añoActual);
   const nombreMes = new Date(añoActual, mesActual - 1).toLocaleString('es-VE', {
     month: 'long',
@@ -77,47 +137,53 @@ export default function LoanDetailScreen() {
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Detalle del Préstamo</Text>
 
-      {/* Resumen */}
       <View style={styles.card}>
         <View style={styles.headerRow}>
           <View style={styles.avatar} />
           <View>
-            <Text style={styles.clientName}>María Jimenez</Text>
-            <Text style={styles.subText}>ID: C001</Text>
+            <Text style={styles.clientName}>{prestamo.cliente}</Text>
+            <Text style={styles.subText}>ID: {prestamo.cliente_id}</Text>
           </View>
           <View style={styles.estadoBadge}>
-            <Text style={styles.estadoText}>Activo</Text>
+            <Text style={styles.estadoText}>{prestamo.estado}</Text>
           </View>
         </View>
 
         <View style={styles.summaryRow}>
           <View style={styles.summaryBox}>
             <Text style={styles.summaryLabel}>Monto Original</Text>
-            <Text style={styles.summaryValue}>$5,000</Text>
+            <Text style={styles.summaryValue}>${prestamo.monto}</Text>
           </View>
           <View style={styles.summaryBox}>
             <Text style={styles.summaryLabel}>Saldo Pendiente</Text>
-            <Text style={styles.summaryValue}>$2,300</Text>
+              <Text style={styles.summaryValue}>${saldoPendiente.toFixed(2)}</Text>
           </View>
         </View>
 
         <View style={styles.summaryRow}>
           <View style={styles.summaryBox}>
             <Text style={styles.summaryLabel}>Total a Pagar</Text>
-            <Text style={styles.summaryValue}>$5,750</Text>
-            <Text style={styles.subText}>15% interés</Text>
+            <Text style={styles.summaryValue}>${montoTotal.toFixed(2)}</Text>
+
+            <Text style={styles.subText}>{prestamo.interes}% interés</Text>
           </View>
           <View style={styles.summaryBox}>
             <Text style={styles.summaryLabel}>Progreso</Text>
-            <Text style={styles.summaryValue}>60%</Text>
+            <Text style={styles.summaryValue}>{progreso}%</Text>
           </View>
         </View>
 
         <Text style={styles.sectionTitle}>Detalles del Préstamo</Text>
-        <Text style={styles.detailText}>Tasa de Interés: 15%</Text>
-        <Text style={styles.detailText}>Fecha de Inicio: 14/01/2024</Text>
-        <Text style={styles.detailText}>Fecha de Vencimiento: 14/07/2024</Text>
-        <Text style={styles.detailText}>Frecuencia de Pago: Mensual</Text>
+        <Text style={styles.detailText}>Tasa de Interés: {prestamo.interes}%</Text>
+        <Text style={styles.detailText}>
+          Fecha de Inicio: {formatearFecha(prestamo.fecha_inicio)}
+        </Text>
+        <Text style={styles.detailText}>
+          Fecha de Vencimiento: {formatearFecha(prestamo.fecha_vencimiento)}
+        </Text>
+        <Text style={styles.detailText}>
+          Frecuencia de Pago: {prestamo.frecuencia}
+        </Text>
 
         <Text style={styles.sectionTitle}>Notas:</Text>
         <Text style={styles.detailText}>
@@ -125,7 +191,6 @@ export default function LoanDetailScreen() {
         </Text>
       </View>
 
-      {/* Calendario mensual */}
       <Text style={styles.sectionTitle}>Calendario de Pagos</Text>
 
       <View style={styles.calendarHeader}>
@@ -141,41 +206,45 @@ export default function LoanDetailScreen() {
       </View>
 
       <View style={styles.calendarGrid}>
-  {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((dia, i) => (
-    <Text key={i} style={styles.dayHeader}>{dia}</Text>
-  ))}
+        {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((dia, i) => (
+          <Text key={i} style={styles.dayHeader}>{dia}</Text>
+        ))}
 
-  {diasDelMes.map(({ fecha, dia }, index) => {
+      {diasDelMes.map(({ fecha, dia }, index) => {
+  let color = '#6d6d6dff'; // gris claro por defecto
 
-          let color = '#969696ff';
-          if (pagosEsperados.includes(fecha)) {
-            color = pagosRealizados.includes(fecha)
-              ? '#50C878'
-              : new Date(fecha) < new Date()
-              ? '#FF6347'
-              : '#cececeff';
-          }
+if (pagosRealizadosFechas.includes(fecha)) {
+  color = '#50C878'; // verde si se pagó ese día
+} else if (pagosEsperados.includes(fecha)) {
+  const vencido = new Date(fecha) < new Date();
+  color = vencido ? '#FF6347' : '#FFD700'; // rojo si vencido, amarillo si aún no ha vencido
+}
 
-          return (
-      <View key={index} style={[styles.dayBoxGrid, { backgroundColor: color }]}>
-        <Text style={styles.dayText}>{dia !== 0 ? dia : ''}</Text>
+
+  return (
+    <View key={index} style={[styles.dayBoxGrid, { backgroundColor: color }]}>
+      <Text style={styles.dayText}>{dia !== 0 ? dia : ''}</Text>
+    </View>
+  );
+})}
+
       </View>
-    );
-  })}
-</View>
 
+            <Text style={styles.sectionTitle}>Historial de Pagos</Text>
+      {pagos.length === 0 ? (
+        <Text style={{ color: '#555', fontSize: 14, marginBottom: 12 }}>
+          No se han registrado pagos aún.
+        </Text>
+      ) : (
+        pagos.map((pago, index) => (
+          <View key={index} style={styles.paymentItem}>
+            <Text style={styles.paymentText}>
+              {formatearFecha(pago.fecha)} — ${pago.monto}
+            </Text>
+          </View>
+        ))
+      )}
 
-      {/* Historial de pagos */}
-      <Text style={styles.sectionTitle}>Historial de Pagos</Text>
-      {historialPagos.map((pago, index) => (
-        <View key={index} style={styles.paymentItem}>
-          <Text style={styles.paymentText}>
-            {pago.fecha} — ${pago.monto}
-          </Text>
-        </View>
-      ))}
-
-      {/* Botón editar */}
       <TouchableOpacity
         style={styles.editButton}
         onPress={() => console.log('Editar Préstamo')}
@@ -338,3 +407,4 @@ dayHeader: {
     fontSize: 16,
   },
 });
+

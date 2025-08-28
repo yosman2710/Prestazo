@@ -4,8 +4,8 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
   Alert,
+  StyleSheet,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
@@ -148,13 +148,6 @@ const formatearFecha = (iso: string) => {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => console.log('Crear nuevo préstamo', cliente.id)}
-        >
-          <Text style={styles.editText}>+ Crear Préstamo</Text>
-        </TouchableOpacity>
-
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>📞 Teléfono</Text>
           <Text style={styles.infoText}>{cliente.telefono}</Text>
@@ -190,7 +183,7 @@ const formatearFecha = (iso: string) => {
             </View>
           </View>
           <TouchableOpacity
-            onPress={() => navigation.navigate('LoanDetail', { prestamoId: p.id })}
+            onPress={() => navigation.navigate('LoanDetailScreen', { prestamoId: p.id })}
           >
             <Text style={{ color: '#2196F3', marginTop: 8 }}>Ver Detalle</Text>
           </TouchableOpacity>
@@ -208,13 +201,6 @@ const formatearFecha = (iso: string) => {
 
 
       <TouchableOpacity
-        style={styles.editButton}
-        onPress={() => console.log('Editar cliente', cliente.id)}
-      >
-        <Text style={styles.editText}>Editar</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
         style={[styles.editButton, { backgroundColor: '#FF6347' }]}
         onPress={eliminarCliente}
       >
@@ -224,11 +210,18 @@ const formatearFecha = (iso: string) => {
   );
 }
 
-
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
     backgroundColor: '#E6F4F1',
     padding: 16,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#003366',
+    marginBottom: 16,
+    textAlign: 'center',
   },
   card: {
     backgroundColor: '#fff',
@@ -245,7 +238,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#4A90E2',
+    backgroundColor: '#ccc',
     marginRight: 12,
   },
   clientName: {
@@ -260,82 +253,106 @@ const styles = StyleSheet.create({
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginVertical: 12,
+    marginTop: 12,
   },
   summaryBox: {
+    width: '48%',
     backgroundColor: '#f0f0f0',
     padding: 12,
     borderRadius: 8,
-    flex: 0.48,
   },
   summaryLabel: {
     fontSize: 14,
     color: '#555',
+    marginBottom: 4,
   },
   summaryValue: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#003366',
   },
-  infoRow: {
-    marginTop: 10,
-  },
-  infoLabel: {
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  infoText: {
-    color: '#555',
-    fontSize: 14,
-  },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#003366',
-    marginBottom: 10,
-  },
-  loanCard: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-  },
-  loanHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  loanTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#003366',
+    marginBottom: 8,
+    marginTop: 16,
   },
-  estadoBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  estadoText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
-  loanDetail: {
+  detailText: {
     fontSize: 14,
-    color: '#555',
-    marginTop: 4,
+    color: '#333',
+    marginBottom: 4,
   },
   editButton: {
     backgroundColor: '#2196F3',
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
-    marginBottom: 40,
+    marginTop: 24,
   },
   editText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
   },
+  infoRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  backgroundColor: '#fff',
+  paddingVertical: 10,
+  paddingHorizontal: 12,
+  borderRadius: 8,
+  marginBottom: 8,
+  borderWidth: 1,
+  borderColor: '#ccc',
+},
+infoLabel: {
+  fontSize: 14,
+  fontWeight: 'bold',
+  color: '#003366',
+},
+infoText: {
+  fontSize: 14,
+  color: '#333',
+  maxWidth: '60%',
+  textAlign: 'right',
+},
+
+loanCard: {
+  backgroundColor: '#fff',
+  borderRadius: 10,
+  padding: 16,
+  marginBottom: 16,
+  borderWidth: 1,
+  borderColor: '#ccc',
+},
+loanHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 8,
+},
+loanTitle: {
+  fontSize: 16,
+  fontWeight: 'bold',
+  color: '#003366',
+},
+estadoBadge: {
+  paddingHorizontal: 8,
+  paddingVertical: 4,
+  borderRadius: 6,
+},
+estadoText: {
+  color: '#fff',
+  fontWeight: 'bold',
+  fontSize: 12,
+},
+loanDetail: {
+  fontSize: 14,
+  color: '#333',
+  marginBottom: 4,
+},
 });
+
+
