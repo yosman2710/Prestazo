@@ -5,13 +5,17 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { RootStackParamList } from '../../navegation/type';
+import { useNavigation } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function LoanDetailScreen() {
+  const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'LoanDetailScreen'>>();
   const db = useSQLiteContext();
   const { prestamoId } = route.params;
@@ -132,8 +136,34 @@ const saldoPendiente = montoTotal - prestamo.total_pagado;
   const nombreMes = new Date(añoActual, mesActual - 1).toLocaleString('es-VE', {
     month: 'long',
   });
+  const eliminarPrestamo = async () => {
+  Alert.alert(
+    '¿Eliminar préstamo?',
+    'Esta acción no se puede deshacer. ¿Estás seguro?',
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await db.runAsync(`DELETE FROM pagos WHERE prestamo_id = ?`, [prestamoId]);
+            await db.runAsync(`DELETE FROM prestamos WHERE id = ?`, [prestamoId]);
+            Alert.alert('Préstamo eliminado');
+            navigation.goBack();
+          } catch (error) {
+            console.error('Error al eliminar préstamo:', error);
+            Alert.alert('Error', 'No se pudo eliminar el préstamo');
+          }
+        },
+      },
+    ]
+  );
+};
+
 
   return (
+    <SafeAreaView style={styles.safeArea}>
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Detalle del Préstamo</Text>
 
@@ -245,17 +275,21 @@ if (pagosRealizadosFechas.includes(fecha)) {
         ))
       )}
 
-      <TouchableOpacity
-        style={styles.editButton}
-        onPress={() => console.log('Editar Préstamo')}
-      >
-        <Text style={styles.editText}>Editar Préstamo</Text>
-      </TouchableOpacity>
+      <TouchableOpacity style={styles.deleteButton} onPress={eliminarPrestamo}>
+  <Text style={styles.deleteButtonText}>🗑️ Eliminar Préstamo</Text>
+</TouchableOpacity>
+
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+  flex: 1,
+  backgroundColor: '#E6F4F1', // o el color que uses de fondo
+},
+
   container: {
     backgroundColor: '#E6F4F1',
     padding: 16,
@@ -394,17 +428,20 @@ dayHeader: {
     color: '#333',
     fontSize: 14,
   },
-  editButton: {
-    backgroundColor: '#2196F3',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  editText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
+
+  deleteButton: {
+  backgroundColor: '#F44336',
+  paddingVertical: 12,
+  borderRadius: 8,
+marginTop: 30, // antes era 20
+  marginBottom: 30, 
+  alignItems: 'center',
+},
+deleteButtonText: {
+  color: '#fff',
+  fontWeight: 'bold',
+  fontSize: 16,
+},
+
 });
 

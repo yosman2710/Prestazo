@@ -74,16 +74,20 @@ export default function DashboardScreen() {
       const cargarDatos = async () => {
         await actualizarEstadosPrestamos();
         try {
-          const totalPrestadoRow = await db.getFirstAsync(
-            `SELECT SUM(monto + (monto * interes / 100)) as total FROM prestamos`
-          ) as { total: number | null };
+        const obtenerTotalSeguro = (row: { total: number | null }) => {
+  return typeof row.total === 'number' && !isNaN(row.total) ? row.total : 0;
+};
 
-          const totalCobradoRow = await db.getFirstAsync(
-            `SELECT SUM(monto) as total FROM pagos`
-          ) as { total: number | null };
+const totalPrestadoRow = await db.getFirstAsync(
+  `SELECT SUM(monto + (monto * interes / 100)) as total FROM prestamos`
+) as { total: number | null };
 
-          setTotalPrestado(totalPrestadoRow.total ?? 0);
-          setTotalCobrado(totalCobradoRow.total ?? 0);
+const totalCobradoRow = await db.getFirstAsync(
+  `SELECT SUM(monto) as total FROM pagos`
+) as { total: number | null };
+
+setTotalPrestado(obtenerTotalSeguro(totalPrestadoRow));
+setTotalCobrado(obtenerTotalSeguro(totalCobradoRow));
 
           const activos = await db.getAllAsync(
             `SELECT p.id, c.nombre AS cliente, p.monto, p.fecha_vencimiento

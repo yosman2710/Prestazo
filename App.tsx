@@ -11,6 +11,7 @@ import CreateClientScreen from './src/screens/client/createClient';
 import ClientDetailScreen from './src/screens/client/ClientDetails';
 import LoanDetailScreen from './src/screens/prestamos/LoanDetailScreen';
 import RegisterPaymentScreen from './src/screens/prestamos/RegisterPayment';
+import EditClientScreen from './src/screens/client/editClient';
 
 enableScreens();
 const Stack = createNativeStackNavigator();
@@ -70,6 +71,7 @@ const createDbifneeded = async (db: SQLiteDatabase) => {
           <Stack.Screen name="ClientDetails" component={ClientDetailScreen} options={screenOptions('Detalles del Cliente')} />
           <Stack.Screen name="LoanDetailScreen" component={LoanDetailScreen} options={screenOptions('Detalles del Préstamo')} />
           <Stack.Screen name="RegisterPayment" component={RegisterPaymentScreen} options={screenOptions('Registrar Pago')} />
+          <Stack.Screen name="EditClient" component={EditClientScreen} options={screenOptions('Editar Cliente')} />
         </Stack.Navigator>
       </NavigationContainer>
     </SQLiteProvider>

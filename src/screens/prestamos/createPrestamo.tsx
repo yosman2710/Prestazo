@@ -7,7 +7,8 @@ import {
   ScrollView,
   Platform,
   Alert,
-  StyleSheet
+  StyleSheet,
+  Modal,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
@@ -17,22 +18,29 @@ import { useSQLiteContext } from 'expo-sqlite';
 export default function CreateLoanScreen() {
   const db = useSQLiteContext();
   const navigation = useNavigation();
+
   const [clientes, setClientes] = useState<{ id: string; nombre: string }[]>([]);
   const [selectedClientId, setSelectedClientId] = useState('');
+  const [selectedClientName, setSelectedClientName] = useState('');
+  const [showClientModal, setShowClientModal] = useState(false);
+
   const [amount, setAmount] = useState('');
   const [interest, setInterest] = useState('5.0');
   const [duration, setDuration] = useState('1');
   const [frequency, setFrequency] = useState('');
+  const [showFrequencyModal, setShowFrequencyModal] = useState(false);
+
   const [startDate, setStartDate] = useState(new Date());
   const [dueDate, setDueDate] = useState(new Date());
   const [showStartPicker, setShowStartPicker] = useState(false);
 
+  const frecuencias = ['Diario', 'Semanal', 'Quincenal', 'Mensual'];
+
   useEffect(() => {
     const cargarClientes = async () => {
-     const rows = await db.getAllAsync(
-  `SELECT id, nombre FROM clientes ORDER BY nombre ASC`
-) as { id: string; nombre: string }[];
-
+      const rows = await db.getAllAsync(
+        `SELECT id, nombre FROM clientes ORDER BY nombre ASC`
+      ) as { id: string; nombre: string }[];
       setClientes(rows);
     };
     cargarClientes();
@@ -116,18 +124,14 @@ export default function CreateLoanScreen() {
         {/* Cliente */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Seleccionar Cliente</Text>
-          {clientes.map((c) => (
-            <TouchableOpacity
-              key={c.id}
-              style={[
-                styles.selectBox,
-                selectedClientId === c.id && { borderColor: '#2196F3' },
-              ]}
-              onPress={() => setSelectedClientId(c.id)}
-            >
-              <Text style={styles.selectText}>{c.nombre}</Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity
+            style={styles.selectBox}
+            onPress={() => setShowClientModal(true)}
+          >
+            <Text style={styles.selectText}>
+              {selectedClientName || 'Seleccionar cliente'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Detalles del préstamo */}
@@ -150,23 +154,22 @@ export default function CreateLoanScreen() {
             onChangeText={setInterest}
           />
 
-          <View style={styles.row}>
-            <TextInput
-              style={[styles.input, { flex: 1, marginRight: 8 }]}
-              placeholder="Cantidad de cuotas"
-              keyboardType="numeric"
-              value={duration}
-              onChangeText={handleDurationChange}
-            />
-            <TouchableOpacity
-              style={[styles.selectBox, { flex: 1 }]}
-              onPress={() => handleFrequencyChange('Diario')} // Podés cambiar esto por un modal
-            >
-              <Text style={styles.selectText}>
-                {frequency || 'Frecuencia de pago'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="Cantidad de cuotas"
+            keyboardType="numeric"
+            value={duration}
+            onChangeText={handleDurationChange}
+          />
+
+          <TouchableOpacity
+            style={styles.selectBox}
+            onPress={() => setShowFrequencyModal(true)}
+          >
+            <Text style={styles.selectText}>
+              {frequency || 'Seleccionar frecuencia de pago'}
+            </Text>
+          </TouchableOpacity>
 
           {/* Fecha de inicio */}
           <TouchableOpacity
@@ -208,44 +211,93 @@ export default function CreateLoanScreen() {
           <Text style={styles.submitText}>Crear Préstamo</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Modal de clientes */}
+      <Modal visible={showClientModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Selecciona un cliente</Text>
+            {clientes.map((c) => (
+              <TouchableOpacity
+                key={c.id}
+                style={styles.modalItem}
+                onPress={() => {
+                  setSelectedClientId(c.id);
+                  setSelectedClientName(c.nombre);
+                  setShowClientModal(false);
+                }}
+              >
+                <Text style={styles.modalText}>{c.nombre}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalClose}
+              onPress={() => setShowClientModal(false)}
+            >
+              <Text style={styles.modalCloseText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal de frecuencia */}
+      <Modal visible={showFrequencyModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Frecuencia de pago</Text>
+            {frecuencias.map((f) => (
+              <TouchableOpacity
+                key={f}
+                style={styles.modalItem}
+                onPress={() => {
+                  handleFrequencyChange(f);
+                  setShowFrequencyModal(false);
+                }}
+              >
+                <Text style={styles.modalText}>{f}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalClose}
+              onPress={() => setShowFrequencyModal(false)}
+            >
+              <Text style={styles.modalCloseText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  scrollContent: {
-  padding: 16,
-  paddingBottom: 40,
-},
-container: {
-  flex: 1,
-  backgroundColor: '#E6F4F1',
-},
 
-  backButton: {
-  marginBottom: 12,
-  paddingVertical: 6,
-  paddingHorizontal: 12,
-  backgroundColor: '#ccc',
-  borderRadius: 6,
-  alignSelf: 'flex-start',
-},
-backButtonText: {
-  color: '#333',
-  fontWeight: 'bold',
-  fontSize: 14,
-},
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#E6F4F1',
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
   title: {
     fontSize: 22,
     fontWeight: 'bold',
     color: '#003366',
     marginBottom: 12,
+    textAlign: 'center',
   },
   card: {
     backgroundColor: '#fff',
     borderRadius: 10,
     padding: 12,
     marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
   },
   sectionTitle: {
     fontSize: 16,
@@ -276,6 +328,11 @@ backButtonText: {
     fontSize: 14,
     color: '#555',
   },
+  label: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 4,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -290,6 +347,58 @@ backButtonText: {
   },
   submitText: {
     color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  backButton: {
+    marginBottom: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#ccc',
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    color: '#333',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#003366',
+    textAlign: 'center',
+  },
+  modalItem: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderColor: '#ccc',
+  },
+  modalText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  modalClose: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    color: '#2196F3',
     fontWeight: 'bold',
     fontSize: 16,
   },

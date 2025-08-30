@@ -5,4 +5,5 @@ export type RootStackParamList = {
   ClientDetails: { clientId: string };
   LoanDetailScreen: { prestamoId: string }; 
   RegisterPayment: { prestamoId: string };
+  EditClient: { clientId: string };
 };
