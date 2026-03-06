@@ -9,16 +9,15 @@ import {
 } from 'react-native';
 import styles from '../../style/client/createClientStyle';
 import { useNavigation } from '@react-navigation/native';
-import { useSQLiteContext } from 'expo-sqlite';
+import { supabase } from '../../utils/supabase';
 
 export default function CreateClientScreen() {
   const navigation = useNavigation();
-  const db = useSQLiteContext(); // ← necesario para pasar contexto
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [note, setNote] = useState('');
-  // Verifica si la base de datos está lista
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSave = async () => {
     if (!name || !phone) {
@@ -26,20 +25,29 @@ export default function CreateClientScreen() {
       return;
     }
 
+    setIsLoading(true);
     try {
-      await db.runAsync(
-        `INSERT INTO clientes (nombre, fecha_ingreso, telefono, direccion, nota) VALUES (?, ?, ?, ?, ?)`,
-        [name, new Date().toISOString(), phone, address, note]
-      );
-      setName('');
-      setPhone('');
-      setAddress('');
-      setNote('');
+      const { error } = await supabase
+        .from('clientes')
+        .insert([
+          {
+            nombre: name,
+            telefono: phone,
+            direccion: address,
+            nota: note,
+            fecha_ingreso: new Date().toISOString(),
+          },
+        ]);
+
+      if (error) throw error;
+
       Alert.alert('Éxito', 'Cliente guardado correctamente');
       navigation.goBack();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al guardar cliente:', error);
-      Alert.alert('Error', 'No se pudo guardar el cliente');
+      Alert.alert('Error', error.message || 'No se pudo guardar el cliente');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -81,8 +89,14 @@ export default function CreateClientScreen() {
         />
       </View>
 
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-        <Text style={styles.saveText}>Guardar Cliente</Text>
+      <TouchableOpacity
+        style={[styles.saveButton, isLoading && { opacity: 0.7 }]}
+        onPress={handleSave}
+        disabled={isLoading}
+      >
+        <Text style={styles.saveText}>
+          {isLoading ? 'Guardando...' : 'Guardar Cliente'}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );

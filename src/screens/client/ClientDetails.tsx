@@ -10,14 +10,14 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useSQLiteContext } from 'expo-sqlite';
+import { supabase } from '../../utils/supabase';
 import { RootStackParamList } from '../../navegation/type';
 import { Prestamo, Cliente } from '../../types';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 export default function ClientDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'ClientDetails'>>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const db = useSQLiteContext();
   const { clientId } = route.params;
 
   const [cliente, setCliente] = useState<Cliente | null>(null);
@@ -25,21 +25,21 @@ export default function ClientDetailScreen() {
   useEffect(() => {
     const cargarDatos = async () => {
       try {
-        const clienteBase = await db.getFirstAsync(
-          `SELECT * FROM clientes WHERE id = ?`,
-          [clientId]
-        ) as {
-          nombre: string;
-          telefono: string;
-          direccion?: string;
-          nota?: string;
-          fecha_ingreso: string;
-        } | undefined;
+        const { data: clienteBase, error: clientError } = await supabase
+          .from('clientes')
+          .select('*')
+          .eq('id', clientId)
+          .single();
 
-        const prestamos = await db.getAllAsync(
-          `SELECT * FROM prestamos WHERE cliente_id = ? ORDER BY fecha_inicio DESC`,
-          [clientId]
-        ) as Prestamo[];
+        if (clientError) throw clientError;
+
+        const { data: prestamos, error: loansError } = await supabase
+          .from('prestamos')
+          .select('*')
+          .eq('cliente_id', clientId)
+          .order('fecha_inicio', { ascending: false });
+
+        if (loansError) throw loansError;
 
         if (clienteBase) {
           setCliente({
@@ -49,28 +49,29 @@ export default function ClientDetailScreen() {
             direccion: clienteBase.direccion ?? '',
             nota: clienteBase.nota ?? '',
             fechaIngreso: clienteBase.fecha_ingreso,
-            prestamos,
+            prestamos: prestamos || [],
           });
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error al cargar cliente:', error);
+        Alert.alert('Error', error.message || 'No se pudo cargar la información del cliente');
       }
     };
 
     cargarDatos();
-  }, []);
+  }, [clientId]);
 
   const eliminarCliente = async () => {
     if (!cliente) return;
 
-    if (cliente.prestamos.length > 0) {
-      Alert.alert('No permitido', 'Este cliente tiene préstamos registrados');
+    if (cliente.prestamos.some(p => p.estado === 'activo')) {
+      Alert.alert('No permitido', 'Este cliente tiene préstamos activos. Cancele los préstamos antes de eliminar al cliente.');
       return;
     }
 
     Alert.alert(
       '¿Eliminar cliente?',
-      'Esta acción eliminará también sus préstamos y pagos (si existieran)',
+      'Esta acción eliminará también sus préstamos y pagos asociados.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -78,15 +79,18 @@ export default function ClientDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await db.runAsync(`DELETE FROM pagos WHERE prestamo_id IN (SELECT id FROM prestamos WHERE cliente_id = ?)`, [cliente.id]);
-              await db.runAsync(`DELETE FROM prestamos WHERE cliente_id = ?`, [cliente.id]);
-              await db.runAsync(`DELETE FROM clientes WHERE id = ?`, [cliente.id]);
+              const { error } = await supabase
+                .from('clientes')
+                .delete()
+                .eq('id', cliente.id);
+
+              if (error) throw error;
 
               Alert.alert('Eliminado', 'Cliente y datos asociados eliminados');
               navigation.goBack();
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error al eliminar cliente:', error);
-              Alert.alert('Error', 'No se pudo eliminar el cliente');
+              Alert.alert('Error', error.message || 'No se pudo eliminar el cliente');
             }
           },
         },
@@ -96,11 +100,11 @@ export default function ClientDetailScreen() {
 
   const getEstadoColor = (estado: Prestamo['estado']) => {
     switch (estado) {
-      case 'Activo':
+      case 'activo':
         return '#50C878';
-      case 'Pagado':
+      case 'pagado':
         return '#ccc';
-      case 'Vencido':
+      case 'vencido':
         return '#FF6347';
       default:
         return '#999';
@@ -109,15 +113,14 @@ export default function ClientDetailScreen() {
 
   if (!cliente) return null;
 
-  const prestamosActivos = cliente.prestamos.filter(p => p.estado === 'Activo').length;
-  const saldoTotal = cliente.prestamos.reduce((acc, p) => acc + p.saldo, 0);
-  const totalPagado = cliente.prestamos.reduce((acc, p) => acc + p.total_pagado, 0);
-const formatearFecha = (iso: string) => {
-  const fecha = new Date(iso);
-  return `${fecha.getDate().toString().padStart(2, '0')}/${
-    (fecha.getMonth() + 1).toString().padStart(2, '0')
-  }/${fecha.getFullYear()}`;
-};
+  const prestamosActivos = cliente.prestamos.filter((p: any) => p.estado === 'activo').length;
+  const saldoTotal = cliente.prestamos.reduce((acc: number, p: any) => acc + p.saldo, 0);
+  const totalPagado = cliente.prestamos.reduce((acc: number, p: any) => acc + p.total_pagado, 0);
+  const formatearFecha = (iso: string) => {
+    const fecha = new Date(iso);
+    return `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')
+      }/${fecha.getFullYear()}`;
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -126,100 +129,100 @@ const formatearFecha = (iso: string) => {
           <View style={styles.headerRow}>
             <View style={styles.avatar} />
             <View>
-            <Text style={styles.clientName}>{cliente.nombre}</Text>
-            <Text style={styles.subText}>
-  Cliente desde: {formatearFecha(cliente.fechaIngreso)}
-</Text>
+              <Text style={styles.clientName}>{cliente.nombre}</Text>
+              <Text style={styles.subText}>
+                Cliente desde: {formatearFecha(cliente.fechaIngreso)}
+              </Text>
 
-          </View>
-        </View>
-<View style={styles.summaryContainer}>
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryBox}>
-            <Text style={styles.summaryLabel}>Préstamos Activos</Text>
-            <Text style={styles.summaryValue}>{prestamosActivos}</Text>
-          </View>
-          <View style={styles.summaryBox}>
-            <Text style={styles.summaryLabel}>Total Pagado</Text>
-            <Text style={styles.summaryValue}>${totalPagado.toFixed(2)}</Text>
-          </View>
-          <View style={styles.summaryBox}>
-            <Text style={styles.summaryLabel}>Saldo Total</Text>
-            <Text style={styles.summaryValue}>${saldoTotal.toFixed(2)}</Text>
-          </View>
-           </View>
-        </View>s
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>📞 Teléfono</Text>
-          <Text style={styles.infoText}>{cliente.telefono}</Text>
-        </View>
-
-        {cliente.direccion && (
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>📍 Dirección</Text>
-            <Text style={styles.infoText}>{cliente.direccion}</Text>
-          </View>
-        )}
-
-        {cliente.nota && (
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>📝 Nota</Text>
-            <Text style={styles.infoText}>{cliente.nota}</Text>
-          </View>
-        )}
-      </View>
-
-      <Text style={styles.sectionTitle}>Préstamos</Text>
-{cliente.prestamos.length === 0 ? (
-  <Text style={{ color: '#555', fontSize: 14, marginBottom: 12 }}>
-    Este cliente aún no tiene préstamos registrados.
-  </Text>
-) : (
-  cliente.prestamos.map((p) => (
-    <View key={p.id} style={styles.loanCard}>
-          <View style={styles.loanHeader}>
-            <Text style={styles.loanTitle}>Préstamo #{p.id}</Text>
-            <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(p.estado) }]}>
-              <Text style={styles.estadoText}>{p.estado}</Text>
             </View>
           </View>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('LoanDetailScreen', { prestamoId: p.id })}
-          >
-            <Text style={{ color: '#2196F3', marginTop: 8 }}>Ver Detalle</Text>
-          </TouchableOpacity>
-          <Text style={styles.loanDetail}>Monto Original: ${p.monto}</Text>
-          <Text style={styles.loanDetail}>Saldo Actual: ${p.saldo}</Text>
-          <Text style={styles.loanDetail}>Pagado: ${p.total_pagado}</Text>
-          <Text style={styles.loanDetail}>Interés: {p.interes}%</Text>
-          <Text style={styles.loanDetail}>Frecuencia: {p.frecuencia}</Text>
-          <Text style={styles.loanDetail}>Cuotas: {p.cantidad_cuotas}</Text>
-          <Text style={styles.loanDetail}>Inicio: {p.fecha_inicio}</Text>
-          <Text style={styles.loanDetail}>Vencimiento: {p.fecha_vencimiento}</Text>
+          <View style={styles.summaryContainer}>
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryBox}>
+                <Text style={styles.summaryLabel}>Préstamos Activos</Text>
+                <Text style={styles.summaryValue}>{prestamosActivos}</Text>
+              </View>
+              <View style={styles.summaryBox}>
+                <Text style={styles.summaryLabel}>Total Pagado</Text>
+                <Text style={styles.summaryValue}>${totalPagado.toFixed(2)}</Text>
+              </View>
+              <View style={styles.summaryBox}>
+                <Text style={styles.summaryLabel}>Saldo Total</Text>
+                <Text style={styles.summaryValue}>${saldoTotal.toFixed(2)}</Text>
+              </View>
+            </View>
+          </View>s
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>📞 Teléfono</Text>
+            <Text style={styles.infoText}>{cliente.telefono}</Text>
+          </View>
+
+          {cliente.direccion && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>📍 Dirección</Text>
+              <Text style={styles.infoText}>{cliente.direccion}</Text>
+            </View>
+          )}
+
+          {cliente.nota && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>📝 Nota</Text>
+              <Text style={styles.infoText}>{cliente.nota}</Text>
+            </View>
+          )}
         </View>
-      ))
-)}
 
-<View style={styles.buttonGroup}>
-  <TouchableOpacity
-    style={[styles.editButton, { backgroundColor: '#4d47ff' }]}
-    onPress={() => navigation.navigate('EditClient', { clientId: cliente.id })}
-  >
-    <Text style={styles.editText}>Editar Cliente</Text>
-  </TouchableOpacity>
+        <Text style={styles.sectionTitle}>Préstamos</Text>
+        {cliente.prestamos.length === 0 ? (
+          <Text style={{ color: '#555', fontSize: 14, marginBottom: 12 }}>
+            Este cliente aún no tiene préstamos registrados.
+          </Text>
+        ) : (
+          cliente.prestamos.map((p: any) => (
+            <View key={p.id} style={styles.loanCard}>
+              <View style={styles.loanHeader}>
+                <Text style={styles.loanTitle}>Préstamo #{p.id}</Text>
+                <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(p.estado) }]}>
+                  <Text style={styles.estadoText}>{p.estado}</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('LoanDetailScreen', { prestamoId: p.id })}
+              >
+                <Text style={{ color: '#2196F3', marginTop: 8 }}>Ver Detalle</Text>
+              </TouchableOpacity>
+              <Text style={styles.loanDetail}>Monto Original: ${p.monto}</Text>
+              <Text style={styles.loanDetail}>Saldo Actual: ${p.saldo}</Text>
+              <Text style={styles.loanDetail}>Pagado: ${p.total_pagado}</Text>
+              <Text style={styles.loanDetail}>Interés: {p.interes}%</Text>
+              <Text style={styles.loanDetail}>Frecuencia: {p.frecuencia}</Text>
+              <Text style={styles.loanDetail}>Cuotas: {p.cantidad_cuotas}</Text>
+              <Text style={styles.loanDetail}>Inicio: {p.fecha_inicio}</Text>
+              <Text style={styles.loanDetail}>Vencimiento: {p.fecha_vencimiento}</Text>
+            </View>
+          ))
+        )}
 
-  <TouchableOpacity
-    style={[styles.editButton, { backgroundColor: '#FF6347' }]}
-    onPress={eliminarCliente}
-  >
-    <Text style={styles.editText}>Eliminar Cliente</Text>
-  </TouchableOpacity>
-</View>
+        <View style={styles.buttonGroup}>
+          <TouchableOpacity
+            style={[styles.editButton, { backgroundColor: '#4d47ff' }]}
+            onPress={() => navigation.navigate('EditClient', { clientId: cliente.id })}
+          >
+            <Text style={styles.editText}>Editar Cliente</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.editButton, { backgroundColor: '#FF6347' }]}
+            onPress={eliminarCliente}
+          >
+            <Text style={styles.editText}>Eliminar Cliente</Text>
+          </TouchableOpacity>
+        </View>
 
 
-    </ScrollView>
-  </SafeAreaView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -264,20 +267,20 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
-summaryRow: {
-  flexDirection: 'row',
-  flexWrap: 'wrap',
-  gap: 20,
-  marginTop: 12,
-},
-summaryBox: {
-  flexGrow: 1,
-  flexBasis: '30%',
-  backgroundColor: '#E6F4F1',
-  padding: 12,
-  borderRadius: 10,
-  alignItems: 'center',
-},
+  summaryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 20,
+    marginTop: 12,
+  },
+  summaryBox: {
+    flexGrow: 1,
+    flexBasis: '30%',
+    backgroundColor: '#E6F4F1',
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
 
   summaryLabel: {
     fontSize: 13,
@@ -366,23 +369,23 @@ summaryBox: {
     fontSize: 16,
   },
   editButton: {
-  paddingVertical: 14,
-  borderRadius: 10,
-  alignItems: 'center',
-  shadowColor: '#000',
-  shadowOpacity: 0.1,
-  shadowOffset: { width: 0, height: 2 },
-  shadowRadius: 4,
-  elevation: 3,
-},
-buttonGroup: {
-  marginTop: 20,
-  marginBottom: 40, // ← esto le da espacio para que no se corte
-  gap: 12,
-},
-summaryContainer: {
-  marginBottom: 24, // ← separa los cuadros del título "Préstamos"
-},
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  buttonGroup: {
+    marginTop: 20,
+    marginBottom: 40, // ← esto le da espacio para que no se corte
+    gap: 12,
+  },
+  summaryContainer: {
+    marginBottom: 24, // ← separa los cuadros del título "Préstamos"
+  },
 
 
 

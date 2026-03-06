@@ -11,7 +11,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navegation/type';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useSQLiteContext } from 'expo-sqlite';
+import { supabase } from '../../utils/supabase';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type PrestamoVencido = {
@@ -23,7 +23,6 @@ type PrestamoVencido = {
 
 export default function DashboardScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const db = useSQLiteContext();
 
   const [prestamosVencimiento, setPrestamosVencimiento] = useState<PrestamoVencido[]>([]);
   const [prestamosActivos, setPrestamosActivos] = useState(0);
@@ -38,31 +37,28 @@ export default function DashboardScreen() {
     try {
       const hoy = new Date();
 
-      const prestamos = await db.getAllAsync(
-        `SELECT id, monto, interes, total_pagado, fecha_vencimiento
-         FROM prestamos
-         WHERE estado != 'Pagado'`
-      ) as {
-        id: number;
-        monto: number;
-        interes: number;
-        total_pagado: number;
-        fecha_vencimiento: string;
-      }[];
+      const { data: prestamos, error } = await supabase
+        .from('prestamos')
+        .select('id, monto, interes, total_pagado, fecha_vencimiento, estado')
+        .neq('estado', 'pagado');
 
-      for (const p of prestamos) {
+      if (error) throw error;
+
+      for (const p of (prestamos || [])) {
         const totalEsperado = p.monto + (p.monto * p.interes) / 100;
         const vencido = new Date(p.fecha_vencimiento) < hoy;
-        const pagado = p.total_pagado >= totalEsperado;
+        const pagado = p.total_pagado >= (totalEsperado - 0.01);
 
-        let nuevoEstado = 'Activo';
-        if (pagado) nuevoEstado = 'Pagado';
-        else if (vencido) nuevoEstado = 'Vencido';
+        let nuevoEstado = 'activo';
+        if (pagado) nuevoEstado = 'pagado';
+        else if (vencido) nuevoEstado = 'vencido';
 
-        await db.runAsync(`UPDATE prestamos SET estado = ? WHERE id = ?`, [
-          nuevoEstado,
-          p.id,
-        ]);
+        if (nuevoEstado !== p.estado) {
+          await supabase
+            .from('prestamos')
+            .update({ estado: nuevoEstado })
+            .eq('id', p.id);
+        }
       }
     } catch (error) {
       console.error('Error actualizando estados de préstamos:', error);
@@ -74,42 +70,50 @@ export default function DashboardScreen() {
       const cargarDatos = async () => {
         await actualizarEstadosPrestamos();
         try {
-        const obtenerTotalSeguro = (row: { total: number | null }) => {
-  return typeof row.total === 'number' && !isNaN(row.total) ? row.total : 0;
-};
+          // Calculate Totals
+          const { data: loansData, error: loansError } = await supabase
+            .from('prestamos')
+            .select('monto, interes');
 
-const totalPrestadoRow = await db.getFirstAsync(
-  `SELECT SUM(monto + (monto * interes / 100)) as total FROM prestamos`
-) as { total: number | null };
+          if (loansError) throw loansError;
 
-const totalCobradoRow = await db.getFirstAsync(
-  `SELECT SUM(monto) as total FROM pagos`
-) as { total: number | null };
+          const tPrestado = (loansData || []).reduce((acc, curr) =>
+            acc + curr.monto + (curr.monto * curr.interes / 100), 0
+          );
+          setTotalPrestado(tPrestado);
 
-setTotalPrestado(obtenerTotalSeguro(totalPrestadoRow));
-setTotalCobrado(obtenerTotalSeguro(totalCobradoRow));
+          const { data: paymentsData, error: paymentsError } = await supabase
+            .from('pagos')
+            .select('monto');
 
-          const activos = await db.getAllAsync(
-            `SELECT p.id, c.nombre AS cliente, p.monto, p.fecha_vencimiento
-             FROM prestamos p
-             JOIN clientes c ON c.id = p.cliente_id
-             WHERE p.estado = 'Activo'
-             ORDER BY p.fecha_vencimiento ASC`
-          ) as { id: number; cliente: string; monto: number; fecha_vencimiento: string }[];
+          if (paymentsError) throw paymentsError;
 
-          setPrestamosActivos(activos.length);
+          const tCobrado = (paymentsData || []).reduce((acc, curr) => acc + curr.monto, 0);
+          setTotalCobrado(tCobrado);
 
-          const vencimientos = await db.getAllAsync(
-            `SELECT p.id, c.nombre AS cliente, p.monto, p.fecha_vencimiento
-             FROM prestamos p
-             JOIN clientes c ON c.id = p.cliente_id
-             ORDER BY p.fecha_vencimiento ASC
-             LIMIT 3`
-          ) as { id: number; cliente: string; monto: number; fecha_vencimiento: string }[];
+          // Get Active Loans
+          const { data: activos, error: activosError } = await supabase
+            .from('prestamos')
+            .select('id, monto, fecha_vencimiento, clientes(nombre)')
+            .eq('estado', 'activo')
+            .order('fecha_vencimiento', { ascending: true });
 
-          const proximos = vencimientos.map((p) => ({
+          if (activosError) throw activosError;
+
+          setPrestamosActivos(activos?.length || 0);
+
+          // Get upcoming expirations
+          const { data: vencimientos, error: vencError } = await supabase
+            .from('prestamos')
+            .select('id, monto, fecha_vencimiento, clientes(nombre)')
+            .order('fecha_vencimiento', { ascending: true })
+            .limit(3);
+
+          if (vencError) throw vencError;
+
+          const proximos = (vencimientos || []).map((p: any) => ({
             id: p.id.toString(),
-            cliente: p.cliente,
+            cliente: p.clientes?.nombre || 'Desconocido',
             monto: p.monto,
             vencimiento: formatearFechaCorta(p.fecha_vencimiento),
           }));
@@ -134,15 +138,19 @@ setTotalCobrado(obtenerTotalSeguro(totalCobradoRow));
 
   const abrirModalPrestamos = async () => {
     try {
-      const rows = await db.getAllAsync(
-        `SELECT p.id, c.nombre AS cliente, p.monto
-         FROM prestamos p
-         JOIN clientes c ON c.id = p.cliente_id
-         WHERE p.estado = 'Activo'
-         ORDER BY c.nombre ASC`
-      ) as { id: number; cliente: string; monto: number }[];
+      const { data: rows, error } = await supabase
+        .from('prestamos')
+        .select('id, monto, clientes(nombre)')
+        .eq('estado', 'activo')
+        .order('id', { ascending: true }); // Should ideally order by client name, but requires join ordering
 
-      setPrestamosActivosList(rows);
+      if (error) throw error;
+
+      setPrestamosActivosList((rows || []).map((r: any) => ({
+        id: r.id,
+        cliente: r.clientes?.nombre || 'Desconocido',
+        monto: r.monto
+      })));
       setModalVisible(true);
     } catch (error) {
       console.error('Error al cargar préstamos activos:', error);
@@ -228,7 +236,7 @@ setTotalCobrado(obtenerTotalSeguro(totalCobradoRow));
       />
 
       <Modal visible={modalVisible} animationType="slide" transparent>
-                <View style={styles.modalOverlay}>
+        <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Selecciona un préstamo</Text>
             {prestamosActivosList.map((p) => (

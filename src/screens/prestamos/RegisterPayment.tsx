@@ -10,13 +10,12 @@ import {
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
-import { useSQLiteContext } from 'expo-sqlite';
+import { supabase } from '../../utils/supabase';
 import { RootStackParamList } from '../../navegation/type';
 
 export default function RegisterPaymentScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'RegisterPayment'>>();
   const navigation = useNavigation();
-  const db = useSQLiteContext();
   const { prestamoId } = route.params;
 
   const [monto, setMonto] = useState('');
@@ -26,6 +25,7 @@ export default function RegisterPaymentScreen() {
   const [interes, setInteres] = useState(0);
   const [totalPagado, setTotalPagado] = useState(0);
   const [fechaVencimiento, setFechaVencimiento] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const fechaHoy = new Date().toISOString().slice(0, 10);
   const saldoTotal = montoOriginal + (montoOriginal * interes) / 100;
@@ -35,48 +35,27 @@ export default function RegisterPaymentScreen() {
   useEffect(() => {
     const cargarPrestamo = async () => {
       try {
-        const prestamo = await db.getFirstAsync(
-          `SELECT p.monto, p.interes, p.total_pagado, p.fecha_vencimiento, c.nombre
-           FROM prestamos p
-           JOIN clientes c ON c.id = p.cliente_id
-           WHERE p.id = ?`,
-          [prestamoId]
-        ) as {
-          monto: number;
-          interes: number;
-          total_pagado: number;
-          fecha_vencimiento: string;
-          nombre: string;
-        };
+        const { data: prestamo, error } = await supabase
+          .from('prestamos')
+          .select('monto, interes, total_pagado, fecha_vencimiento, clientes(nombre)')
+          .eq('id', prestamoId)
+          .single();
+
+        if (error) throw error;
 
         setMontoOriginal(prestamo.monto);
         setInteres(prestamo.interes);
         setTotalPagado(prestamo.total_pagado);
         setFechaVencimiento(prestamo.fecha_vencimiento);
-        setClienteNombre(prestamo.nombre);
-      } catch (error) {
+        setClienteNombre((prestamo as any).clientes?.nombre || 'Desconocido');
+      } catch (error: any) {
         console.error('Error al cargar préstamo:', error);
-        Alert.alert('Error', 'No se pudo cargar el préstamo');
+        Alert.alert('Error', error.message || 'No se pudo cargar el préstamo');
       }
     };
 
     cargarPrestamo();
-  }, []);
-
-  const actualizarEstadoPrestamo = async () => {
-    const totalEsperado = montoOriginal + (montoOriginal * interes) / 100;
-    const vencido = new Date(fechaVencimiento) < new Date();
-    const pagado = totalPagado + parseFloat(monto) >= totalEsperado;
-
-    let nuevoEstado = 'Activo';
-    if (pagado) nuevoEstado = 'Pagado';
-    else if (vencido) nuevoEstado = 'Vencido';
-
-    await db.runAsync(`UPDATE prestamos SET estado = ? WHERE id = ?`, [
-      nuevoEstado,
-      prestamoId,
-    ]);
-  };
+  }, [prestamoId]);
 
   const handleRegistrar = async () => {
     const montoNum = parseFloat(monto);
@@ -86,29 +65,55 @@ export default function RegisterPaymentScreen() {
       return;
     }
 
-    if (montoNum > saldoActual) {
+    if (montoNum > saldoActual + 0.01) { // allow small precision err
       Alert.alert('Monto excedido', 'El monto no puede ser mayor al saldo actual');
       return;
     }
 
+    setIsLoading(true);
     try {
-      await db.runAsync(
-        `INSERT INTO pagos (prestamo_id, fecha, monto, nota) VALUES (?, ?, ?, ?)`,
-        [prestamoId, fechaHoy, montoNum, nota]
-      );
+      // 1. Insert Payment
+      const { error: errorPago } = await supabase
+        .from('pagos')
+        .insert([
+          {
+            prestamo_id: prestamoId,
+            fecha: new Date().toISOString(),
+            monto: montoNum,
+            nota: nota
+          }
+        ]);
 
-      await db.runAsync(
-        `UPDATE prestamos SET saldo = saldo - ?, total_pagado = total_pagado + ? WHERE id = ?`,
-        [montoNum, montoNum, prestamoId]
-      );
+      if (errorPago) throw errorPago;
 
-      await actualizarEstadoPrestamo();
+      // 2. Update Loan Balance
+      const nuevoTotalPagado = totalPagado + montoNum;
+      const totalEsperado = montoOriginal + (montoOriginal * interes) / 100;
+      const vencido = new Date(fechaVencimiento) < new Date();
+      const pagadoTotalmente = nuevoTotalPagado >= (totalEsperado - 0.01);
+
+      let nuevoEstado = 'activo';
+      if (pagadoTotalmente) nuevoEstado = 'pagado';
+      else if (vencido) nuevoEstado = 'vencido';
+
+      const { error: errorPrestamo } = await supabase
+        .from('prestamos')
+        .update({
+          saldo: saldoTotal - nuevoTotalPagado,
+          total_pagado: nuevoTotalPagado,
+          estado: nuevoEstado
+        })
+        .eq('id', prestamoId);
+
+      if (errorPrestamo) throw errorPrestamo;
 
       Alert.alert('Pago registrado', 'El pago se ha guardado correctamente');
       navigation.goBack();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al registrar pago:', error);
-      Alert.alert('Error', 'No se pudo registrar el pago');
+      Alert.alert('Error', error.message || 'No se pudo registrar el pago');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -160,8 +165,14 @@ export default function RegisterPaymentScreen() {
         onChangeText={setNota}
       />
 
-      <TouchableOpacity style={styles.button} onPress={handleRegistrar}>
-        <Text style={styles.buttonText}>Registrar Pago</Text>
+      <TouchableOpacity
+        style={[styles.button, isLoading && { opacity: 0.7 }]}
+        onPress={handleRegistrar}
+        disabled={isLoading}
+      >
+        <Text style={styles.buttonText}>
+          {isLoading ? 'Registrando...' : 'Registrar Pago'}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );

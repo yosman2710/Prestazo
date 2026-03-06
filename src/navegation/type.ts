@@ -3,7 +3,9 @@ export type RootStackParamList = {
   CreateClient: undefined;
   CreateLoan: undefined; // si pasas el cliente al crear préstamo
   ClientDetails: { clientId: string };
-  LoanDetailScreen: { prestamoId: string }; 
+  LoanDetailScreen: { prestamoId: string };
   RegisterPayment: { prestamoId: string };
   EditClient: { clientId: string };
+  Login: undefined;
+  Register: undefined;
 };

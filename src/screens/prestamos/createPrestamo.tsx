@@ -13,10 +13,9 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useSQLiteContext } from 'expo-sqlite';
+import { supabase } from '../../utils/supabase';
 
 export default function CreateLoanScreen() {
-  const db = useSQLiteContext();
   const navigation = useNavigation();
 
   const [clientes, setClientes] = useState<{ id: string; nombre: string }[]>([]);
@@ -33,15 +32,20 @@ export default function CreateLoanScreen() {
   const [startDate, setStartDate] = useState(new Date());
   const [dueDate, setDueDate] = useState(new Date());
   const [showStartPicker, setShowStartPicker] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const frecuencias = ['Diario', 'Semanal', 'Quincenal', 'Mensual'];
 
   useEffect(() => {
     const cargarClientes = async () => {
-      const rows = await db.getAllAsync(
-        `SELECT id, nombre FROM clientes ORDER BY nombre ASC`
-      ) as { id: string; nombre: string }[];
-      setClientes(rows);
+      const { data, error } = await supabase
+        .from('clientes')
+        .select('id, nombre')
+        .order('nombre', { ascending: true });
+
+      if (!error && data) {
+        setClientes(data.map(c => ({ id: c.id.toString(), nombre: c.nombre })));
+      }
     };
     cargarClientes();
   }, []);
@@ -87,34 +91,37 @@ export default function CreateLoanScreen() {
       return;
     }
 
+    setIsLoading(true);
     try {
       const monto = parseFloat(amount);
       const interesNum = parseFloat(interest);
       const cuotas = parseInt(duration);
 
-      await db.runAsync(
-        `INSERT INTO prestamos (
-          cliente_id, monto, saldo, interes, fecha_inicio, fecha_vencimiento,
-          frecuencia, cantidad_cuotas, estado
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          selectedClientId,
-          monto,
-          monto,
-          interesNum,
-          startDate.toISOString(),
-          dueDate.toISOString(),
-          frequency,
-          cuotas,
-          'Activo',
-        ]
-      );
+      const { error } = await supabase
+        .from('prestamos')
+        .insert([
+          {
+            cliente_id: parseInt(selectedClientId),
+            monto,
+            saldo: monto,
+            interes: interesNum,
+            fecha_inicio: startDate.toISOString(),
+            fecha_vencimiento: dueDate.toISOString(),
+            frecuencia: frequency,
+            cantidad_cuotas: cuotas,
+            estado: 'activo',
+          },
+        ]);
+
+      if (error) throw error;
 
       Alert.alert('Éxito', 'Préstamo creado correctamente');
       navigation.goBack();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al crear préstamo:', error);
-      Alert.alert('Error', 'No se pudo crear el préstamo');
+      Alert.alert('Error', error.message || 'No se pudo crear el préstamo');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -207,8 +214,14 @@ export default function CreateLoanScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.submitButton} onPress={handleCreateLoan}>
-          <Text style={styles.submitText}>Crear Préstamo</Text>
+        <TouchableOpacity
+          style={[styles.submitButton, isLoading && { opacity: 0.7 }]}
+          onPress={handleCreateLoan}
+          disabled={isLoading}
+        >
+          <Text style={styles.submitText}>
+            {isLoading ? 'Cargando...' : 'Crear Préstamo'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
 

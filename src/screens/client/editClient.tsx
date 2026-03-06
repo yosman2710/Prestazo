@@ -13,7 +13,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../navegation/type';
-import { useSQLiteContext } from 'expo-sqlite';
+import { supabase } from '../../utils/supabase';
 import { NuevoCliente } from '../../types';
 
 type EditClientRouteProp = RouteProp<RootStackParamList, 'EditClient'>;
@@ -21,7 +21,6 @@ type EditClientRouteProp = RouteProp<RootStackParamList, 'EditClient'>;
 export default function EditClientScreen() {
   const route = useRoute<EditClientRouteProp>();
   const navigation = useNavigation();
-  const db = useSQLiteContext();
   const { clientId } = route.params;
 
   const [cliente, setCliente] = useState<NuevoCliente>({
@@ -34,6 +33,7 @@ export default function EditClientScreen() {
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [fechaIngresoDate, setFechaIngresoDate] = useState(new Date());
+  const [isLoading, setIsLoading] = useState(false);
 
   const formatearFecha = (date: Date) => {
     return date.toISOString().split('T')[0]; // "YYYY-MM-DD"
@@ -41,19 +41,14 @@ export default function EditClientScreen() {
 
   useEffect(() => {
     const cargarCliente = async () => {
-      type ClienteDBRow = {
-        nombre: string;
-        telefono: string;
-        direccion: string;
-        nota?: string;
-        fecha_ingreso: string;
-      };
-
       try {
-        const row = await db.getFirstAsync(
-          `SELECT nombre, telefono, direccion, nota, fecha_ingreso FROM clientes WHERE id = ?`,
-          [clientId]
-        ) as ClienteDBRow;
+        const { data: row, error } = await supabase
+          .from('clientes')
+          .select('nombre, telefono, direccion, nota, fecha_ingreso')
+          .eq('id', clientId)
+          .single();
+
+        if (error) throw error;
 
         if (row) {
           const fecha = new Date(row.fecha_ingreso);
@@ -65,17 +60,15 @@ export default function EditClientScreen() {
             nota: row.nota ?? '',
             fechaIngreso: formatearFecha(fecha),
           });
-        } else {
-          Alert.alert('Cliente no encontrado', 'No se encontró información para este cliente.');
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error al cargar cliente:', error);
-        Alert.alert('Error', 'No se pudo cargar la información del cliente');
+        Alert.alert('Error', error.message || 'No se pudo cargar la información del cliente');
       }
     };
 
     cargarCliente();
-  }, []);
+  }, [clientId]);
 
   const guardarCambios = async () => {
     if (!cliente.nombre.trim()) {
@@ -83,23 +76,28 @@ export default function EditClientScreen() {
       return;
     }
 
+    setIsLoading(true);
     try {
-      await db.runAsync(
-        `UPDATE clientes SET nombre = ?, telefono = ?, direccion = ?, nota = ?, fecha_ingreso = ? WHERE id = ?`,
-        [
-          cliente.nombre,
-          cliente.telefono,
-          cliente.direccion,
-          cliente.nota || null,
-          cliente.fechaIngreso,
-          clientId,
-        ]
-      );
+      const { error } = await supabase
+        .from('clientes')
+        .update({
+          nombre: cliente.nombre,
+          telefono: cliente.telefono,
+          direccion: cliente.direccion,
+          nota: cliente.nota || null,
+          fecha_ingreso: cliente.fechaIngreso,
+        })
+        .eq('id', clientId);
+
+      if (error) throw error;
+
       Alert.alert('Éxito', 'Cliente actualizado correctamente');
       navigation.goBack();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al actualizar cliente:', error);
-      Alert.alert('Error', 'No se pudo guardar los cambios');
+      Alert.alert('Error', error.message || 'No se pudo guardar los cambios');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -171,8 +169,14 @@ export default function EditClientScreen() {
         )}
       </View>
 
-      <TouchableOpacity style={styles.saveButton} onPress={guardarCambios}>
-        <Text style={styles.saveButtonText}>Guardar Cambios</Text>
+      <TouchableOpacity
+        style={[styles.saveButton, isLoading && { opacity: 0.7 }]}
+        onPress={guardarCambios}
+        disabled={isLoading}
+      >
+        <Text style={styles.saveButtonText}>
+          {isLoading ? 'Guardando...' : 'Guardar Cambios'}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );

@@ -11,7 +11,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useSQLiteContext } from 'expo-sqlite';
 import styles from '../../style/client/listclientStyle';
 import { RootStackParamList } from '../../navegation/type';
 
@@ -29,72 +28,50 @@ type ClienteConPrestamos = {
   paid: number;
 };
 
+import { supabase } from '../../utils/supabase';
+
 export default function ClientListScreen() {
   const [clientes, setClientes] = useState<ClienteConPrestamos[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const navigation = useNavigation<NavigationProp>();
-  const db = useSQLiteContext();
 
   const cargarClientes = async () => {
-    if (!db?.getAllAsync) {
-      console.error('Base de datos no disponible');
-      Alert.alert('Error', 'La base de datos no está lista');
-      return;
-    }
-
     setLoading(true);
     try {
-      const baseClientes = await db.getAllAsync(
-        `SELECT * FROM clientes ORDER BY fecha_ingreso DESC`
-      ) as {
-        id: string;
-        nombre: string;
-        telefono: string;
-        direccion?: string;
-        nota?: string;
-        fecha_ingreso: string;
-      }[];
+      const { data, error } = await supabase
+        .from('clientes')
+        .select(`
+          *,
+          prestamos (
+            id,
+            saldo,
+            total_pagado
+          )
+        `)
+        .order('fecha_ingreso', { ascending: false });
 
-      const enriquecidos = await Promise.all(
-        baseClientes.map(async (cliente) => {
-          try {
-            const resumen = await db.getFirstAsync(
-              `SELECT
-                COUNT(*) as loans,
-                COALESCE(SUM(saldo), 0) as debt,
-                COALESCE(SUM(total_pagado), 0) as paid
-              FROM prestamos
-              WHERE cliente_id = ?`,
-              [cliente.id]
-            ) as {
-              loans: number;
-              debt: number;
-              paid: number;
-            };
+      if (error) throw error;
 
-            return {
-              ...cliente,
-              loans: resumen.loans,
-              debt: resumen.debt,
-              paid: resumen.paid,
-            };
-          } catch (error) {
-            console.error(`Error con cliente ${cliente.id}:`, error);
-            return {
-              ...cliente,
-              loans: 0,
-              debt: 0,
-              paid: 0,
-            };
-          }
-        })
-      );
+      const enriquecidos: ClienteConPrestamos[] = data.map((cliente: any) => {
+        const loans = cliente.prestamos || [];
+        return {
+          id: cliente.id.toString(),
+          nombre: cliente.nombre,
+          telefono: cliente.telefono,
+          direccion: cliente.direccion,
+          nota: cliente.nota,
+          fecha_ingreso: cliente.fecha_ingreso,
+          loans: loans.length,
+          debt: loans.reduce((acc: number, l: any) => acc + (l.saldo || 0), 0),
+          paid: loans.reduce((acc: number, l: any) => acc + (l.total_pagado || 0), 0),
+        };
+      });
 
       setClientes(enriquecidos);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al cargar clientes:', error);
-      Alert.alert('Error', 'No se pudieron cargar los clientes');
+      Alert.alert('Error', error.message || 'No se pudieron cargar los clientes');
     } finally {
       setLoading(false);
     }
@@ -111,15 +88,21 @@ export default function ClientListScreen() {
   );
 
   const eliminarCliente = async (clientId: string) => {
-  try {
-    await db.runAsync(`DELETE FROM clientes WHERE id = ?`, [clientId]);
-    console.log(`Cliente ${clientId} eliminado`);
-    cargarClientes(); // recarga la lista
-  } catch (error) {
-    console.error('Error al eliminar cliente:', error);
-    Alert.alert('Error', 'No se pudo eliminar el cliente');
-  }
-};
+    try {
+      const { error } = await supabase
+        .from('clientes')
+        .delete()
+        .eq('id', clientId);
+
+      if (error) throw error;
+
+      console.log(`Cliente ${clientId} eliminado`);
+      cargarClientes(); // recarga la lista
+    } catch (error: any) {
+      console.error('Error al eliminar cliente:', error);
+      Alert.alert('Error', error.message || 'No se pudo eliminar el cliente');
+    }
+  };
 
 
   const totalClients = clientes.length;

@@ -35,9 +35,9 @@ export type ClienteEditable = Omit<Cliente, 'id' | 'prestamos'>;
 
 // PRÉSTAMOS
 
-export type PrestamoEstado = 'Activo' | 'Pagado' | 'Vencido';
+export type PrestamoEstado = 'activo' | 'pagado' | 'vencido';
 
-export type PrestamoFrecuencia = 'Diario' | 'Semanal' | 'Mensual';
+export type PrestamoFrecuencia = 'Diario' | 'Semanal' | 'Quincenal' | 'Mensual';
 
 export type Prestamo = {
   id: string;

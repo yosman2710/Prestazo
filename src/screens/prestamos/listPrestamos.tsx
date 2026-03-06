@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../navegation/type';
-import { useSQLiteContext } from 'expo-sqlite';
+import { supabase } from '../../utils/supabase';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -29,7 +29,6 @@ type PrestamoResumen = {
 
 export default function LoanListScreen() {
   const navigation = useNavigation<NavigationProp>();
-  const db = useSQLiteContext();
   const [search, setSearch] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('Todos');
   const [loans, setLoans] = useState<
@@ -41,31 +40,28 @@ export default function LoanListScreen() {
     try {
       const hoy = new Date();
 
-      const prestamos = await db.getAllAsync(
-        `SELECT id, monto, interes, total_pagado, fecha_vencimiento
-         FROM prestamos
-         WHERE estado != 'Pagado'`
-      ) as {
-        id: number;
-        monto: number;
-        interes: number;
-        total_pagado: number;
-        fecha_vencimiento: string;
-      }[];
+      const { data: prestamos, error } = await supabase
+        .from('prestamos')
+        .select('id, monto, interes, total_pagado, fecha_vencimiento, estado')
+        .neq('estado', 'pagado');
 
-      for (const p of prestamos) {
+      if (error) throw error;
+
+      for (const p of (prestamos || [])) {
         const totalEsperado = p.monto + (p.monto * p.interes) / 100;
         const vencido = new Date(p.fecha_vencimiento) < hoy;
-        const pagado = p.total_pagado >= totalEsperado;
+        const pagado = p.total_pagado >= (totalEsperado - 0.01);
 
-        let nuevoEstado = 'Activo';
-        if (pagado) nuevoEstado = 'Pagado';
-        else if (vencido) nuevoEstado = 'Vencido';
+        let nuevoEstado = 'activo';
+        if (pagado) nuevoEstado = 'pagado';
+        else if (vencido) nuevoEstado = 'vencido';
 
-        await db.runAsync(`UPDATE prestamos SET estado = ? WHERE id = ?`, [
-          nuevoEstado,
-          p.id,
-        ]);
+        if (nuevoEstado !== p.estado) {
+          await supabase
+            .from('prestamos')
+            .update({ estado: nuevoEstado })
+            .eq('id', p.id);
+        }
       }
     } catch (error) {
       console.error('Error actualizando estados de préstamos:', error);
@@ -74,49 +70,42 @@ export default function LoanListScreen() {
 
   const cargarPrestamos = async () => {
     try {
-      const rows = await db.getAllAsync(`
-        SELECT 
-          p.id,
-          c.nombre AS client,
-          p.monto,
-          p.total_pagado,
-          p.fecha_vencimiento AS dueDate,
-          p.interes,
-          p.estado AS status
-        FROM prestamos p
-        JOIN clientes c ON c.id = p.cliente_id
-        ORDER BY p.fecha_vencimiento ASC
-      `) as {
-        id: number;
-        client: string;
-        monto: number;
-        total_pagado: number;
-        dueDate: string;
-        interes: number;
-        status: string;
-      }[];
+      const { data: rows, error } = await supabase
+        .from('prestamos')
+        .select(`
+          id,
+          monto,
+          total_pagado,
+          fecha_vencimiento,
+          interes,
+          estado,
+          clientes (nombre)
+        `)
+        .order('fecha_vencimiento', { ascending: true });
 
-      const transformados = rows.map((p) => {
+      if (error) throw error;
+
+      const transformados = (rows || []).map((p: any) => {
         const total = p.monto + (p.monto * p.interes) / 100;
         const balance = total - p.total_pagado;
 
         return {
           id: p.id.toString(),
-          client: p.client,
+          client: p.clientes?.nombre || 'Desconocido',
           amount: p.monto,
           interest: p.interes,
           totalPagado: p.total_pagado,
-          dueDate: p.dueDate,
-          status: p.status,
+          dueDate: p.fecha_vencimiento,
+          status: p.estado,
           total,
           balance,
         };
       });
 
       setLoans(transformados);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al cargar préstamos:', error);
-      Alert.alert('Error', 'No se pudieron cargar los préstamos');
+      Alert.alert('Error', error.message || 'No se pudieron cargar los préstamos');
     } finally {
       setLoading(false);
     }
@@ -124,14 +113,14 @@ export default function LoanListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      actualizarEstadosPrestamos();
-      cargarPrestamos();
+      setLoading(true);
+      actualizarEstadosPrestamos().then(() => cargarPrestamos());
     }, [])
   );
 
   const filteredLoans = loans.filter((loan) => {
     const matchSearch = loan.client.toLowerCase().includes(search.toLowerCase());
-    const matchFilter = selectedFilter === 'Todos' || loan.status === selectedFilter;
+    const matchFilter = selectedFilter === 'Todos' || loan.status === selectedFilter.toLowerCase();
     return matchSearch && matchFilter;
   });
 
@@ -144,11 +133,11 @@ export default function LoanListScreen() {
 
   const getStatusStyle = (status: string) => {
     switch (status) {
-      case 'Activo':
+      case 'activo':
         return { backgroundColor: '#4CAF50' };
-      case 'Vencido':
+      case 'vencido':
         return { backgroundColor: '#F44336' };
-      case 'Pagado':
+      case 'pagado':
         return { backgroundColor: '#2196F3' };
       default:
         return { backgroundColor: '#9E9E9E' };
@@ -168,7 +157,7 @@ export default function LoanListScreen() {
       />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterContainer}>
-        {['Todos', 'Activo', 'Vencido', 'Pagado'].map((filter) => (
+        {['Todos', 'activo', 'vencido', 'pagado'].map((filter) => (
           <TouchableOpacity
             key={filter}
             style={[
@@ -218,7 +207,7 @@ export default function LoanListScreen() {
                 >
                   <Text style={styles.detailButtonText}>Ver Detalle</Text>
                 </TouchableOpacity>
-                {item.status !== 'Pagado' && (
+                {item.status !== 'pagado' && (
                   <TouchableOpacity
                     style={styles.payButton}
                     onPress={() =>
@@ -270,11 +259,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   filterContainer: {
-  flexDirection: 'row',
-  marginBottom: 18,
-  paddingVertical: 4, 
-  height: 52,       
-},
+    flexDirection: 'row',
+    marginBottom: 18,
+    paddingVertical: 4,
+    height: 52,
+  },
 
   filterButton: {
     height: 36,
@@ -285,7 +274,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderWidth: 1,
     borderColor: '#ccc',
-  },  
+  },
   filterButtonActive: {
     backgroundColor: '#2196F3',
     borderColor: '#2196F3',
@@ -322,7 +311,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     paddingVertical: 4,
-    width: 80, // 👈 ancho fijo para mantener forma
+    width: 80,
     borderRadius: 12,
     overflow: 'hidden',
   },
