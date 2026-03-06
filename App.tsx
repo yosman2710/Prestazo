@@ -24,16 +24,19 @@ export default function App() {
   return (
     <NavigationContainer>
       <AuthProvider>
-        <Stack.Navigator initialRouteName="Login">
-          <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-          <Stack.Screen name="Signup" component={SignupScreen} options={{ headerShown: false }} />
-          <Stack.Screen name="MainTabs" component={TabNavigator} options={{ headerShown: false }} />
-          <Stack.Screen name="CreateLoan" component={CreateLoanScreen} options={screenOptions('Nuevo Préstamo')} />
-          <Stack.Screen name="CreateClient" component={CreateClientScreen} options={screenOptions('Nuevo Cliente')} />
-          <Stack.Screen name="ClientDetails" component={ClientDetailScreen} options={screenOptions('Detalles del Cliente')} />
-          <Stack.Screen name="LoanDetailScreen" component={LoanDetailScreen} options={screenOptions('Detalles del Préstamo')} />
-          <Stack.Screen name="RegisterPayment" component={RegisterPaymentScreen} options={screenOptions('Registrar Pago')} />
-          <Stack.Screen name="EditClient" component={EditClientScreen} options={screenOptions('Editar Cliente')} />
+        <Stack.Navigator
+          initialRouteName="Login"
+          screenOptions={{ headerShown: false }}
+        >
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Signup" component={SignupScreen} />
+          <Stack.Screen name="MainTabs" component={TabNavigator} />
+          <Stack.Screen name="CreateLoan" component={CreateLoanScreen} />
+          <Stack.Screen name="CreateClient" component={CreateClientScreen} />
+          <Stack.Screen name="ClientDetails" component={ClientDetailScreen} />
+          <Stack.Screen name="LoanDetailScreen" component={LoanDetailScreen} />
+          <Stack.Screen name="RegisterPayment" component={RegisterPaymentScreen} />
+          <Stack.Screen name="EditClient" component={EditClientScreen} />
         </Stack.Navigator>
       </AuthProvider>
     </NavigationContainer>

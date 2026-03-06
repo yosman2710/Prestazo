@@ -5,15 +5,30 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  ScrollView,
   Alert,
-  StyleSheet
+  StyleSheet,
+  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  Search,
+  Plus,
+  Filter,
+  ChevronRight,
+  Calendar,
+  DollarSign,
+  ArrowUpRight,
+  TrendingUp,
+  AlertCircle,
+  CreditCard
+} from 'lucide-react-native';
 import { RootStackParamList } from '../../navegation/type';
 import { supabase } from '../../utils/supabase';
+import { theme } from '../../utils/theme';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -25,21 +40,20 @@ type PrestamoResumen = {
   totalPagado: number;
   dueDate: string;
   status: string;
+  total: number;
+  balance: number;
 };
 
 export default function LoanListScreen() {
   const navigation = useNavigation<NavigationProp>();
   const [search, setSearch] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('Todos');
-  const [loans, setLoans] = useState<
-    (PrestamoResumen & { total: number; balance: number })[]
-  >([]);
+  const [loans, setLoans] = useState<PrestamoResumen[]>([]);
   const [loading, setLoading] = useState(true);
 
   const actualizarEstadosPrestamos = async () => {
     try {
       const hoy = new Date();
-
       const { data: prestamos, error } = await supabase
         .from('prestamos')
         .select('id, monto, interes, total_pagado, fecha_vencimiento, estado')
@@ -50,21 +64,18 @@ export default function LoanListScreen() {
       for (const p of (prestamos || [])) {
         const totalEsperado = p.monto + (p.monto * p.interes) / 100;
         const vencido = new Date(p.fecha_vencimiento) < hoy;
-        const pagado = p.total_pagado >= (totalEsperado - 0.01);
+        const pagado = p.total_pagado >= (totalEsperado - 0.05);
 
         let nuevoEstado = 'activo';
         if (pagado) nuevoEstado = 'pagado';
         else if (vencido) nuevoEstado = 'vencido';
 
         if (nuevoEstado !== p.estado) {
-          await supabase
-            .from('prestamos')
-            .update({ estado: nuevoEstado })
-            .eq('id', p.id);
+          await supabase.from('prestamos').update({ estado: nuevoEstado }).eq('id', p.id);
         }
       }
     } catch (error) {
-      console.error('Error actualizando estados de préstamos:', error);
+      console.error(error);
     }
   };
 
@@ -87,14 +98,14 @@ export default function LoanListScreen() {
 
       const transformados = (rows || []).map((p: any) => {
         const total = p.monto + (p.monto * p.interes) / 100;
-        const balance = total - p.total_pagado;
+        const balance = total - (p.total_pagado || 0);
 
         return {
           id: p.id.toString(),
           client: p.clientes?.nombre || 'Desconocido',
           amount: p.monto,
           interest: p.interes,
-          totalPagado: p.total_pagado,
+          totalPagado: p.total_pagado || 0,
           dueDate: p.fecha_vencimiento,
           status: p.estado,
           total,
@@ -104,8 +115,7 @@ export default function LoanListScreen() {
 
       setLoans(transformados);
     } catch (error: any) {
-      console.error('Error al cargar préstamos:', error);
-      Alert.alert('Error', error.message || 'No se pudieron cargar los préstamos');
+      Alert.alert('Error', 'No se pudieron cargar los préstamos');
     } finally {
       setLoading(false);
     }
@@ -126,109 +136,150 @@ export default function LoanListScreen() {
 
   const formatearFecha = (iso: string) => {
     const fecha = new Date(iso);
-    return `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1)
-      .toString()
-      .padStart(2, '0')}/${fecha.getFullYear()}`;
+    return `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
   };
 
-  const getStatusStyle = (status: string) => {
+  const getStatusConfig = (status: string) => {
     switch (status) {
       case 'activo':
-        return { backgroundColor: '#4CAF50' };
+        return { color: theme.colors.primary, bg: '#EEF2FF', label: 'ACTIVO' };
       case 'vencido':
-        return { backgroundColor: '#F44336' };
+        return { color: theme.colors.danger, bg: '#FEF2F2', label: 'VENCIDO' };
       case 'pagado':
-        return { backgroundColor: '#2196F3' };
+        return { color: theme.colors.success, bg: '#ECFDF5', label: 'PAGADO' };
       default:
-        return { backgroundColor: '#9E9E9E' };
+        return { color: theme.colors.textLight, bg: '#F8FAFC', label: 'DESCONOCIDO' };
     }
+  };
+
+  const LoanCard = ({ item }: { item: PrestamoResumen }) => {
+    const config = getStatusConfig(item.status);
+    const progress = Math.min(100, Math.round((item.totalPagado / item.total) * 100));
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => navigation.navigate('LoanDetailScreen', { prestamoId: item.id })}
+      >
+        <View style={styles.cardHeader}>
+          <View>
+            <Text style={styles.clientName}>{item.client}</Text>
+            <View style={styles.dateRow}>
+              <Calendar color={theme.colors.textLight} size={12} />
+              <Text style={styles.dateText}>Vence: {formatearFecha(item.dueDate)}</Text>
+            </View>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
+            <Text style={[styles.statusText, { color: config.color }]}>{config.label}</Text>
+          </View>
+        </View>
+
+        <View style={styles.amountContainer}>
+          <View>
+            <Text style={styles.amountLabel}>Saldo Pendiente</Text>
+            <Text style={styles.amountValue}>${item.balance.toFixed(2)}</Text>
+          </View>
+          <View style={styles.totalBox}>
+            <Text style={styles.totalLabel}>Total: ${item.total.toFixed(2)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.progressSection}>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressLabel}>Progreso de Pago</Text>
+            <Text style={styles.progressPercent}>{progress}%</Text>
+          </View>
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: config.color }]} />
+          </View>
+        </View>
+
+        <View style={styles.cardFooter}>
+          <View style={styles.interestBadge}>
+            <CreditCard color={theme.colors.textLight} size={12} />
+            <Text style={styles.interestText}>{item.interest}% Interés</Text>
+          </View>
+          <View style={styles.actionLink}>
+            <Text style={styles.actionLinkText}>Ver detalles</Text>
+            <ChevronRight color={theme.colors.primary} size={16} />
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Préstamos</Text>
-      <Text style={styles.subtitle}>{filteredLoans.length} préstamos encontrados</Text>
-
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Buscar por cliente..."
-        value={search}
-        onChangeText={setSearch}
-      />
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterContainer}>
-        {['Todos', 'activo', 'vencido', 'pagado'].map((filter) => (
-          <TouchableOpacity
-            key={filter}
-            style={[
-              styles.filterButton,
-              selectedFilter === filter && styles.filterButtonActive,
-            ]}
-            onPress={() => setSelectedFilter(filter)}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                selectedFilter === filter && styles.filterTextActive,
-              ]}
-            >
-              {filter}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {filteredLoans.length === 0 ? (
-        <Text style={{ textAlign: 'center', marginTop: 40, color: '#555' }}>
-          No hay préstamos registrados.
-        </Text>
-      ) : (
-        <FlatList
-          data={filteredLoans}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.clientName}>{item.client}</Text>
-                <Text style={[styles.status, getStatusStyle(item.status)]}>
-                  {item.status}
-                </Text>
-              </View>
-              <Text style={styles.cardText}>Monto Total: ${item.total.toFixed(2)}</Text>
-              <Text style={styles.cardText}>Saldo Pendiente: ${item.balance.toFixed(2)}</Text>
-              <Text style={styles.cardText}>Fecha Vencimiento: {formatearFecha(item.dueDate)}</Text>
-              <Text style={styles.cardText}>Interés: {item.interest}%</Text>
-              <View style={styles.buttonRow}>
-                <TouchableOpacity
-                  style={styles.detailButton}
-                  onPress={() =>
-                    navigation.navigate('LoanDetailScreen', { prestamoId: item.id })
-                  }
-                >
-                  <Text style={styles.detailButtonText}>Ver Detalle</Text>
-                </TouchableOpacity>
-                {item.status !== 'pagado' && (
-                  <TouchableOpacity
-                    style={styles.payButton}
-                    onPress={() =>
-                      navigation.navigate('RegisterPayment', { prestamoId: item.id })
-                    }
-                  >
-                    <Text style={styles.payButtonText}>Pago</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          )}
-        />
-      )}
-
-      <TouchableOpacity
-        style={styles.newButton}
-        onPress={() => navigation.navigate('CreateLoan')}
+      <LinearGradient
+        colors={[theme.colors.primary, theme.colors.secondary]}
+        style={styles.header}
       >
-        <Text style={styles.newButtonText}>+ Nuevo</Text>
-      </TouchableOpacity>
+        <View style={styles.headerTitleRow}>
+          <View>
+            <Text style={styles.headerTitle}>Préstamos</Text>
+            <Text style={styles.headerSubtitle}>{filteredLoans.length} registros en total</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => navigation.navigate('CreateLoan', {})}
+          >
+            <Plus color="#fff" size={24} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.searchContainer}>
+          <Search color={theme.colors.textLight} size={20} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Buscar por cliente..."
+            value={search}
+            onChangeText={setSearch}
+            placeholderTextColor={theme.colors.textLight}
+          />
+        </View>
+      </LinearGradient>
+
+      <View style={styles.content}>
+        <View style={styles.filterSection}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScroll}>
+            {['Todos', 'Activo', 'Vencido', 'Pagado'].map((filter) => (
+              <TouchableOpacity
+                key={filter}
+                style={[
+                  styles.filterChip,
+                  selectedFilter === filter && styles.filterChipActive
+                ]}
+                onPress={() => setSelectedFilter(filter)}
+              >
+                <Text style={[
+                  styles.filterChipText,
+                  selectedFilter === filter && styles.filterChipTextActive
+                ]}>{filter}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
+        {loading ? (
+          <View style={styles.loaderContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
+        ) : (
+          <FlatList
+            data={filteredLoans}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => <LoanCard item={item} />}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <AlertCircle color={theme.colors.textLight} size={48} />
+                <Text style={styles.emptyText}>No se encontraron préstamos</Text>
+              </View>
+            }
+          />
+        )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -236,127 +287,221 @@ export default function LoanListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E6F4F1',
-    padding: 16,
+    backgroundColor: theme.colors.background,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#003366',
+  header: {
+    padding: 24,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
-  subtitle: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 8,
-  },
-  searchInput: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 12,
-    borderColor: '#ccc',
-    borderWidth: 1,
-  },
-  filterContainer: {
+  headerTitleRow: {
     flexDirection: 'row',
-    marginBottom: 18,
-    paddingVertical: 4,
-    height: 52,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
   },
-
-  filterButton: {
-    height: 36,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#ccc',
-  },
-  filterButtonActive: {
-    backgroundColor: '#2196F3',
-    borderColor: '#2196F3',
-  },
-  filterText: {
-    color: '#333',
-  },
-  filterTextActive: {
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
     color: '#fff',
   },
-  card: {
+  headerSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  addButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    height: 48,
+    ...theme.shadows.sm,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 16,
+    color: theme.colors.text,
+  },
+  content: {
+    flex: 1,
+  },
+  filterSection: {
+    paddingVertical: 16,
+  },
+  filtersScroll: {
+    paddingHorizontal: 20,
+  },
+  filterChip: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: theme.colors.surface,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  filterChipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  filterChipText: {
+    fontSize: 14,
+    color: theme.colors.text,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#fff',
+  },
+  listContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    ...theme.shadows.sm,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
   clientName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#003366',
+    color: theme.colors.text,
   },
-  status: {
-    color: '#fff',
-    fontWeight: 'bold',
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  dateText: {
     fontSize: 12,
-    textAlign: 'center',
-    paddingVertical: 4,
-    width: 80,
-    borderRadius: 12,
-    overflow: 'hidden',
+    color: theme.colors.textLight,
+    marginLeft: 4,
   },
-  cardText: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 2,
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
-  buttonRow: {
+  statusText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  amountContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 8,
+    alignItems: 'flex-end',
+    marginBottom: 16,
   },
-  detailButton: {
-    backgroundColor: '#FFEB3B',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
+  amountLabel: {
+    fontSize: 12,
+    color: theme.colors.textLight,
+    marginBottom: 4,
   },
-  detailButtonText: {
-    color: '#333',
+  amountValue: {
+    fontSize: 22,
     fontWeight: 'bold',
+    color: theme.colors.text,
   },
-  payButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
+  totalBox: {
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
-  payButtonText: {
-    color: '#fff',
+  totalLabel: {
+    fontSize: 12,
+    color: theme.colors.textLight,
+  },
+  progressSection: {
+    marginBottom: 16,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  progressLabel: {
+    fontSize: 12,
+    color: theme.colors.textLight,
+    fontWeight: '600',
+  },
+  progressPercent: {
+    fontSize: 12,
     fontWeight: 'bold',
+    color: theme.colors.primary,
   },
-  newButton: {
-    position: 'absolute',
-    right: 16,
-    bottom: 16,
-    backgroundColor: '#2196F3',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 30,
+  progressBarBg: {
+    height: 6,
+    backgroundColor: theme.colors.border,
+    borderRadius: 3,
+    overflow: 'hidden',
   },
-  newButtonText: {
-    color: '#fff',
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  interestBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  interestText: {
+    fontSize: 11,
+    color: theme.colors.textLight,
+    marginLeft: 4,
+    fontWeight: '600',
+  },
+  actionLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionLinkText: {
+    fontSize: 13,
+    color: theme.colors.primary,
     fontWeight: 'bold',
+    marginRight: 4,
+  },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    marginTop: 12,
     fontSize: 16,
+    color: theme.colors.textLight,
   },
 });

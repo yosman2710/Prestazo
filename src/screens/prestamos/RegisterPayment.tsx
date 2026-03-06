@@ -7,15 +7,33 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
-import { RouteProp } from '@react-navigation/native';
+import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  ArrowLeft,
+  DollarSign,
+  Calendar,
+  FileText,
+  CheckCircle2,
+  ArrowRight,
+  TrendingDown,
+  Info
+} from 'lucide-react-native';
 import { supabase } from '../../utils/supabase';
 import { RootStackParamList } from '../../navegation/type';
+import { theme } from '../../utils/theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function RegisterPaymentScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'RegisterPayment'>>();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp>();
   const { prestamoId } = route.params;
 
   const [monto, setMonto] = useState('');
@@ -26,71 +44,73 @@ export default function RegisterPaymentScreen() {
   const [totalPagado, setTotalPagado] = useState(0);
   const [fechaVencimiento, setFechaVencimiento] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
 
-  const fechaHoy = new Date().toISOString().slice(0, 10);
+  const fechaHoy = new Date().toLocaleDateString('es-ES', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  });
+
   const saldoTotal = montoOriginal + (montoOriginal * interes) / 100;
   const saldoActual = saldoTotal - totalPagado;
-  const nuevoSaldo = monto ? saldoActual - parseFloat(monto) : saldoActual;
+  const montoNum = parseFloat(monto) || 0;
+  const nuevoSaldo = Math.max(0, saldoActual - montoNum);
 
   useEffect(() => {
-    const cargarPrestamo = async () => {
-      try {
-        const { data: prestamo, error } = await supabase
-          .from('prestamos')
-          .select('monto, interes, total_pagado, fecha_vencimiento, clientes(nombre)')
-          .eq('id', prestamoId)
-          .single();
-
-        if (error) throw error;
-
-        setMontoOriginal(prestamo.monto);
-        setInteres(prestamo.interes);
-        setTotalPagado(prestamo.total_pagado);
-        setFechaVencimiento(prestamo.fecha_vencimiento);
-        setClienteNombre((prestamo as any).clientes?.nombre || 'Desconocido');
-      } catch (error: any) {
-        console.error('Error al cargar préstamo:', error);
-        Alert.alert('Error', error.message || 'No se pudo cargar el préstamo');
-      }
-    };
-
     cargarPrestamo();
   }, [prestamoId]);
 
-  const handleRegistrar = async () => {
-    const montoNum = parseFloat(monto);
+  const cargarPrestamo = async () => {
+    setFetching(true);
+    try {
+      const { data: prestamo, error } = await supabase
+        .from('prestamos')
+        .select('monto, interes, total_pagado, fecha_vencimiento, clientes(nombre)')
+        .eq('id', prestamoId)
+        .single();
 
+      if (error) throw error;
+
+      setMontoOriginal(prestamo.monto);
+      setInteres(prestamo.interes);
+      setTotalPagado(prestamo.total_pagado);
+      setFechaVencimiento(prestamo.fecha_vencimiento);
+      setClienteNombre((prestamo as any).clientes?.nombre || 'Cliente');
+    } catch (error: any) {
+      Alert.alert('Error', 'No se pudo cargar la información del préstamo');
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  const handleRegistrar = async () => {
     if (!monto || isNaN(montoNum) || montoNum <= 0) {
-      Alert.alert('Monto inválido', 'Ingresa un monto válido mayor a cero');
+      Alert.alert('Monto inválido', 'Por favor ingresa un monto válido');
       return;
     }
 
-    if (montoNum > saldoActual + 0.01) { // allow small precision err
-      Alert.alert('Monto excedido', 'El monto no puede ser mayor al saldo actual');
+    if (montoNum > saldoActual + 0.05) {
+      Alert.alert('Monto excedido', 'El pago no puede ser mayor al saldo pendiente');
       return;
     }
 
     setIsLoading(true);
     try {
-      // 1. Insert Payment
       const { error: errorPago } = await supabase
         .from('pagos')
-        .insert([
-          {
-            prestamo_id: prestamoId,
-            fecha: new Date().toISOString(),
-            monto: montoNum,
-            nota: nota
-          }
-        ]);
+        .insert([{
+          prestamo_id: prestamoId,
+          fecha: new Date().toISOString(),
+          monto: montoNum,
+          nota: nota
+        }]);
 
       if (errorPago) throw errorPago;
 
-      // 2. Update Loan Balance
       const nuevoTotalPagado = totalPagado + montoNum;
-      const totalEsperado = montoOriginal + (montoOriginal * interes) / 100;
       const vencido = new Date(fechaVencimiento) < new Date();
-      const pagadoTotalmente = nuevoTotalPagado >= (totalEsperado - 0.01);
+      const pagadoTotalmente = nuevoTotalPagado >= (saldoTotal - 0.05);
 
       let nuevoEstado = 'activo';
       if (pagadoTotalmente) nuevoEstado = 'pagado';
@@ -99,7 +119,7 @@ export default function RegisterPaymentScreen() {
       const { error: errorPrestamo } = await supabase
         .from('prestamos')
         .update({
-          saldo: saldoTotal - nuevoTotalPagado,
+          saldo: Math.max(0, saldoTotal - nuevoTotalPagado),
           total_pagado: nuevoTotalPagado,
           estado: nuevoEstado
         })
@@ -107,169 +127,321 @@ export default function RegisterPaymentScreen() {
 
       if (errorPrestamo) throw errorPrestamo;
 
-      Alert.alert('Pago registrado', 'El pago se ha guardado correctamente');
-      navigation.goBack();
+      Alert.alert('Éxito', 'Pago registrado correctamente', [
+        { text: 'OK', onPress: () => navigation.goBack() }
+      ]);
     } catch (error: any) {
-      console.error('Error al registrar pago:', error);
-      Alert.alert('Error', error.message || 'No se pudo registrar el pago');
+      Alert.alert('Error', 'No se pudo registrar el pago');
     } finally {
       setIsLoading(false);
     }
   };
 
+  if (fetching) return (
+    <View style={[styles.container, styles.center]}>
+      <ActivityIndicator size="large" color={theme.colors.primary} />
+    </View>
+  );
+
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Registrar Pagos</Text>
-
-      <View style={styles.card}>
-        <Text style={styles.clientName}>{clienteNombre}</Text>
-        <Text style={styles.loanId}>Préstamo #{prestamoId}</Text>
-
-        <View style={styles.row}>
-          <View style={styles.box}>
-            <Text style={styles.label}>Saldo Total</Text>
-            <Text style={styles.value}>${saldoTotal.toFixed(2)}</Text>
-          </View>
-          <View style={styles.box}>
-            <Text style={styles.label}>Saldo Actual</Text>
-            <Text style={styles.value}>${saldoActual.toFixed(2)}</Text>
-          </View>
-        </View>
-
-        <View style={styles.box}>
-          <Text style={styles.label}>Nuevo Saldo</Text>
-          <Text style={styles.value}>${nuevoSaldo.toFixed(2)}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.sectionTitle}>Monto del Pago</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Ej: 500.00"
-        keyboardType="numeric"
-        value={monto}
-        onChangeText={setMonto}
-      />
-
-      <Text style={styles.sectionTitle}>Fecha del Pago</Text>
-      <View style={styles.dateBox}>
-        <Text style={styles.dateText}>{fechaHoy}</Text>
-      </View>
-
-      <Text style={styles.sectionTitle}>Notas (opcional)</Text>
-      <TextInput
-        style={[styles.input, { height: 80 }]}
-        placeholder="Observaciones, referencias, etc."
-        multiline
-        value={nota}
-        onChangeText={setNota}
-      />
-
-      <TouchableOpacity
-        style={[styles.button, isLoading && { opacity: 0.7 }]}
-        onPress={handleRegistrar}
-        disabled={isLoading}
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
       >
-        <Text style={styles.buttonText}>
-          {isLoading ? 'Registrando...' : 'Registrar Pago'}
-        </Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <LinearGradient
+            colors={[theme.colors.primary, theme.colors.secondary]}
+            style={styles.header}
+          >
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <ArrowLeft color="#fff" size={24} />
+            </TouchableOpacity>
+            <View style={styles.headerTitleContainer}>
+              <Text style={styles.headerTitle}>Registrar Pago</Text>
+              <Text style={styles.headerSubtitle}>{clienteNombre}</Text>
+            </View>
+          </LinearGradient>
+
+          <View style={styles.content}>
+            {/* Balance Summary Card */}
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryHeader}>
+                <TrendingDown color={theme.colors.success} size={24} />
+                <Text style={styles.summaryTitle}>Resumen de Saldo</Text>
+              </View>
+
+              <View style={styles.balanceRow}>
+                <View style={styles.balanceCol}>
+                  <Text style={styles.balanceLabel}>Saldo Actual</Text>
+                  <Text style={styles.balanceValue}>${saldoActual.toFixed(2)}</Text>
+                </View>
+                <ArrowRight color={theme.colors.textLight} size={20} />
+                <View style={styles.balanceCol}>
+                  <Text style={styles.balanceLabel}>Saldo Final</Text>
+                  <Text style={[styles.balanceValue, { color: theme.colors.primary }]}>
+                    ${nuevoSaldo.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              {montoNum > 0 && (
+                <View style={styles.discountBadge}>
+                  <Text style={styles.discountText}>Descontando ${montoNum.toFixed(2)}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Input Form */}
+            <View style={styles.formCard}>
+              <Text style={styles.inputLabel}>Monto a pagar</Text>
+              <View style={styles.inputContainer}>
+                <View style={styles.inputIcon}>
+                  <DollarSign color={theme.colors.primary} size={20} />
+                </View>
+                <TextInput
+                  style={styles.input}
+                  placeholder="0.00"
+                  keyboardType="numeric"
+                  value={monto}
+                  onChangeText={setMonto}
+                  placeholderTextColor={theme.colors.textLight}
+                />
+              </View>
+
+              <Text style={styles.inputLabel}>Fecha de transacción</Text>
+              <View style={[styles.inputContainer, styles.disabledInput]}>
+                <View style={styles.inputIcon}>
+                  <Calendar color={theme.colors.textLight} size={20} />
+                </View>
+                <Text style={styles.disabledInputText}>{fechaHoy}</Text>
+              </View>
+
+              <Text style={styles.inputLabel}>Observaciones (Opcional)</Text>
+              <View style={[styles.inputContainer, { alignItems: 'flex-start', paddingTop: 12 }]}>
+                <View style={styles.inputIcon}>
+                  <FileText color={theme.colors.primary} size={20} />
+                </View>
+                <TextInput
+                  style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+                  placeholder="Añade una nota sobre este pago..."
+                  multiline
+                  value={nota}
+                  onChangeText={setNota}
+                  placeholderTextColor={theme.colors.textLight}
+                />
+              </View>
+            </View>
+
+            {/* Info Box */}
+            <View style={styles.infoBox}>
+              <Info color={theme.colors.primary} size={18} />
+              <Text style={styles.infoText}>
+                Este pago se aplicará al saldo pendiente del préstamo #{prestamoId.substring(0, 8)}.
+              </Text>
+            </View>
+
+            {/* Submit Button */}
+            <TouchableOpacity
+              style={[styles.submitButton, (isLoading || !monto) && styles.submitButtonDisabled]}
+              onPress={handleRegistrar}
+              disabled={isLoading || !monto}
+            >
+              <LinearGradient
+                colors={isLoading || !monto ? [theme.colors.textLight, '#94a3b8'] : [theme.colors.primary, theme.colors.secondary]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.gradientButton}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <CheckCircle2 color="#fff" size={20} />
+                    <Text style={styles.submitButtonText}>Confirmar Pago</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#E6F4F1',
-    padding: 16,
     flex: 1,
+    backgroundColor: theme.colors.background,
   },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#003366',
-    marginBottom: 16,
-    textAlign: 'center',
+  center: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 16,
+  header: {
+    paddingTop: 20,
+    paddingBottom: 40,
+    paddingHorizontal: 24,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 20,
   },
-  clientName: {
-    fontSize: 18,
+  headerTitleContainer: {
+    marginBottom: 10,
+  },
+  headerTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#003366',
-    marginBottom: 4,
+    color: '#fff',
   },
-  loanId: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
+  headerSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 4,
   },
-  row: {
+  content: {
+    paddingHorizontal: 20,
+    marginTop: -25,
+    paddingBottom: 40,
+  },
+  summaryCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 24,
+    padding: 24,
+    ...theme.shadows.md,
+    marginBottom: 24,
+  },
+  summaryHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.text,
+    marginLeft: 10,
+  },
+  balanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
-  box: {
-    backgroundColor: '#f0f0f0',
-    padding: 12,
-    borderRadius: 8,
-    width: '48%',
+  balanceCol: {
+    flex: 1,
+    alignItems: 'center',
   },
-  label: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 4,
-  },
-  value: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#003366',
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#003366',
+  balanceLabel: {
+    fontSize: 12,
+    color: theme.colors.textLight,
     marginBottom: 6,
-    marginTop: 12,
   },
-  input: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
+  balanceValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  discountBadge: {
+    backgroundColor: '#ECFDF5',
+    paddingVertical: 6,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 12,
-  },
-  dateBox: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  dateText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  button: {
-    backgroundColor: '#2196F3',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
+    borderRadius: 12,
+    alignSelf: 'center',
     marginTop: 20,
   },
-  buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+  discountText: {
+    color: theme.colors.success,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  formCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 24,
+    padding: 24,
+    ...theme.shadows.sm,
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.colors.text,
+    marginBottom: 10,
+    marginLeft: 4,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 20,
+    paddingHorizontal: 12,
+  },
+  inputIcon: {
+    width: 40,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  input: {
+    flex: 1,
+    height: 48,
     fontSize: 16,
+    color: theme.colors.text,
+    paddingRight: 12,
+  },
+  disabledInput: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
+  },
+  disabledInputText: {
+    fontSize: 16,
+    color: theme.colors.textLight,
+  },
+  infoBox: {
+    flexDirection: 'row',
+    backgroundColor: '#EFF6FF',
+    padding: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#3B82F6',
+    marginLeft: 10,
+    lineHeight: 18,
+  },
+  submitButton: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    ...theme.shadows.md,
+  },
+  submitButtonDisabled: {
+    opacity: 0.8,
+  },
+  gradientButton: {
+    height: 56,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  submitButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginLeft: 10,
   },
 });
 

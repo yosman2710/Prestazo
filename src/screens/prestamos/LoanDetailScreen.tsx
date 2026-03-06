@@ -6,59 +6,80 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  ArrowLeft,
+  Trash2,
+  Calendar as CalendarIcon,
+  DollarSign,
+  TrendingUp,
+  Clock,
+  User,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  AlertCircle,
+  CreditCard
+} from 'lucide-react-native';
 import { supabase } from '../../utils/supabase';
 import { RootStackParamList } from '../../navegation/type';
+import { theme } from '../../utils/theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
 export default function LoanDetailScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'LoanDetailScreen'>>();
   const { prestamoId } = route.params;
 
   const [prestamo, setPrestamo] = useState<any>(null);
   const [pagos, setPagos] = useState<{ fecha: string; monto: number }[]>([]);
+  const [loading, setLoading] = useState(true);
   const [mesActual, setMesActual] = useState(new Date().getMonth() + 1);
   const [añoActual, setAñoActual] = useState(new Date().getFullYear());
 
   useEffect(() => {
-    const cargarDatos = async () => {
-      try {
-        const { data: p, error: pError } = await supabase
-          .from('prestamos')
-          .select(`
-            *,
-            clientes (nombre)
-          `)
-          .eq('id', prestamoId)
-          .single();
-
-        if (pError) throw pError;
-
-        setPrestamo({
-          ...p,
-          cliente: p.clientes?.nombre
-        });
-
-        const { data: pagosRealizados, error: pagosError } = await supabase
-          .from('pagos')
-          .select('fecha, monto')
-          .eq('prestamo_id', prestamoId)
-          .order('fecha', { ascending: true });
-
-        if (pagosError) throw pagosError;
-
-        setPagos(pagosRealizados || []);
-      } catch (error: any) {
-        console.error('Error al cargar préstamo:', error);
-        Alert.alert('Error', error.message || 'No se pudo cargar el préstamo');
-      }
-    };
-
     cargarDatos();
   }, [prestamoId]);
+
+  const cargarDatos = async () => {
+    setLoading(true);
+    try {
+      const { data: p, error: pError } = await supabase
+        .from('prestamos')
+        .select(`
+          *,
+          clientes (nombre)
+        `)
+        .eq('id', prestamoId)
+        .single();
+
+      if (pError) throw pError;
+
+      setPrestamo({
+        ...p,
+        cliente: p.clientes?.nombre
+      });
+
+      const { data: pagosRealizados, error: pagosError } = await supabase
+        .from('pagos')
+        .select('fecha, monto')
+        .eq('prestamo_id', prestamoId)
+        .order('fecha', { ascending: true });
+
+      if (pagosError) throw pagosError;
+      setPagos(pagosRealizados || []);
+    } catch (error: any) {
+      Alert.alert('Error', 'No se pudo cargar la información del préstamo');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const avanzarMes = () => {
     if (mesActual === 12) {
@@ -96,7 +117,6 @@ export default function LoanDetailScreen() {
         dia: d,
       });
     }
-
     return dias;
   };
 
@@ -107,12 +127,7 @@ export default function LoanDetailScreen() {
   ): string[] => {
     const fechas: string[] = [];
     const base = new Date(inicio);
-    const diasPorCuota = {
-      Diario: 1,
-      Semanal: 7,
-      Quincenal: 15,
-      Mensual: 30,
-    };
+    const diasPorCuota = { Diario: 1, Semanal: 7, Quincenal: 15, Mensual: 30 };
     const incremento = diasPorCuota[frecuencia as keyof typeof diasPorCuota] ?? 0;
 
     for (let i = 0; i < cuotas; i++) {
@@ -120,37 +135,18 @@ export default function LoanDetailScreen() {
       fecha.setDate(base.getDate() + i * incremento);
       fechas.push(fecha.toISOString().slice(0, 10));
     }
-
     return fechas;
   };
 
   const formatearFecha = (iso: string) => {
     const fecha = new Date(iso);
-    return `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')
-      }/${fecha.getFullYear()}`;
+    return `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')}/${fecha.getFullYear()}`;
   };
 
-  if (!prestamo) return null;
-  const montoTotal = prestamo.monto + (prestamo.monto * prestamo.interes) / 100;
-  const saldoPendiente = montoTotal - prestamo.total_pagado;
-
-
-  const pagosEsperados = generarFechasEsperadas(
-    prestamo.fecha_inicio,
-    prestamo.frecuencia,
-    prestamo.cantidad_cuotas
-  );
-
-  const pagosRealizadosFechas = pagos.map((p) => p.fecha.slice(0, 10));
-  const progreso = Math.round((pagos.length / prestamo.cantidad_cuotas) * 100);
-  const diasDelMes = obtenerDiasDelMes(mesActual, añoActual);
-  const nombreMes = new Date(añoActual, mesActual - 1).toLocaleString('es-VE', {
-    month: 'long',
-  });
   const eliminarPrestamo = async () => {
     Alert.alert(
-      '¿Eliminar préstamo?',
-      'Esta acción no se puede deshacer. ¿Estás seguro?',
+      'Eliminar Préstamo',
+      '¿Estás seguro de que deseas eliminar este préstamo? Se eliminarán también todos los pagos asociados.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -158,25 +154,11 @@ export default function LoanDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const { error: errorPagos } = await supabase
-                .from('pagos')
-                .delete()
-                .eq('prestamo_id', prestamoId);
-
-              if (errorPagos) throw errorPagos;
-
-              const { error: errorPrestamo } = await supabase
-                .from('prestamos')
-                .delete()
-                .eq('id', prestamoId);
-
-              if (errorPrestamo) throw errorPrestamo;
-
-              Alert.alert('Préstamo eliminado');
+              await supabase.from('pagos').delete().eq('prestamo_id', prestamoId);
+              await supabase.from('prestamos').delete().eq('id', prestamoId);
               navigation.goBack();
             } catch (error: any) {
-              console.error('Error al eliminar préstamo:', error);
-              Alert.alert('Error', error.message || 'No se pudo eliminar el préstamo');
+              Alert.alert('Error', 'No se pudo eliminar el préstamo');
             }
           },
         },
@@ -184,287 +166,498 @@ export default function LoanDetailScreen() {
     );
   };
 
+  if (loading) return (
+    <View style={[styles.container, styles.center]}>
+      <ActivityIndicator size="large" color={theme.colors.primary} />
+    </View>
+  );
+
+  if (!prestamo) return null;
+
+  const montoTotal = prestamo.monto + (prestamo.monto * prestamo.interes) / 100;
+  const saldoPendiente = montoTotal - (prestamo.total_pagado || 0);
+  const pagosEsperados = generarFechasEsperadas(prestamo.fecha_inicio, prestamo.frecuencia, prestamo.cantidad_cuotas);
+  const pagosRealizadosFechas = pagos.map((p) => p.fecha.slice(0, 10));
+  const progreso = Math.min(100, Math.round(((prestamo.total_pagado || 0) / montoTotal) * 100));
+  const diasDelMes = obtenerDiasDelMes(mesActual, añoActual);
+  const nombreMes = new Date(añoActual, mesActual - 1).toLocaleString('es-ES', { month: 'long' });
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Detalle del Préstamo</Text>
-
-        <View style={styles.card}>
-          <View style={styles.headerRow}>
-            <View style={styles.avatar} />
-            <View>
-              <Text style={styles.clientName}>{prestamo.cliente}</Text>
-              <Text style={styles.subText}>ID: {prestamo.cliente_id}</Text>
-            </View>
-            <View style={styles.estadoBadge}>
-              <Text style={styles.estadoText}>{prestamo.estado}</Text>
-            </View>
+    <SafeAreaView style={styles.container}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <LinearGradient
+          colors={[theme.colors.primary, theme.colors.secondary]}
+          style={styles.header}
+        >
+          <View style={styles.headerTop}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <ArrowLeft color="#fff" size={24} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={eliminarPrestamo} style={styles.deleteIconButton}>
+              <Trash2 color="#fff" size={22} />
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Monto Original</Text>
-              <Text style={styles.summaryValue}>${prestamo.monto}</Text>
-            </View>
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Saldo Pendiente</Text>
-              <Text style={styles.summaryValue}>${saldoPendiente.toFixed(2)}</Text>
-            </View>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Total a Pagar</Text>
-              <Text style={styles.summaryValue}>${montoTotal.toFixed(2)}</Text>
-
-              <Text style={styles.subText}>{prestamo.interes}% interés</Text>
-            </View>
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Progreso</Text>
-              <Text style={styles.summaryValue}>{progreso}%</Text>
-            </View>
-          </View>
-
-          <Text style={styles.sectionTitle}>Detalles del Préstamo</Text>
-          <Text style={styles.detailText}>Tasa de Interés: {prestamo.interes}%</Text>
-          <Text style={styles.detailText}>
-            Fecha de Inicio: {formatearFecha(prestamo.fecha_inicio)}
-          </Text>
-          <Text style={styles.detailText}>
-            Fecha de Vencimiento: {formatearFecha(prestamo.fecha_vencimiento)}
-          </Text>
-          <Text style={styles.detailText}>
-            Frecuencia de Pago: {prestamo.frecuencia}
-          </Text>
-
-          <Text style={styles.sectionTitle}>Notas:</Text>
-          <Text style={styles.detailText}>
-            Cliente confiable con historial de pagos puntuales.
-          </Text>
-        </View>
-
-        <Text style={styles.sectionTitle}>Calendario de Pagos</Text>
-
-        <View style={styles.calendarHeader}>
-          <TouchableOpacity onPress={retrocederMes}>
-            <Text style={styles.navButton}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.monthLabel}>
-            {nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1)} {añoActual}
-          </Text>
-          <TouchableOpacity onPress={avanzarMes}>
-            <Text style={styles.navButton}>→</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.calendarGrid}>
-          {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((dia, i) => (
-            <Text key={i} style={styles.dayHeader}>{dia}</Text>
-          ))}
-
-          {diasDelMes.map(({ fecha, dia }, index) => {
-            let color = '#6d6d6dff'; // gris claro por defecto
-
-            if (pagosRealizadosFechas.includes(fecha)) {
-              color = '#50C878'; // verde si se pagó ese día
-            } else if (pagosEsperados.includes(fecha)) {
-              const vencido = new Date(fecha) < new Date();
-              color = vencido ? '#FF6347' : '#FFD700'; // rojo si vencido, amarillo si aún no ha vencido
-            }
-
-
-            return (
-              <View key={index} style={[styles.dayBoxGrid, { backgroundColor: color }]}>
-                <Text style={styles.dayText}>{dia !== 0 ? dia : ''}</Text>
+          <View style={styles.headerContent}>
+            <View style={styles.clientInfo}>
+              <View style={styles.avatar}>
+                <User color="#fff" size={30} />
               </View>
-            );
-          })}
-
-        </View>
-
-        <Text style={styles.sectionTitle}>Historial de Pagos</Text>
-        {pagos.length === 0 ? (
-          <Text style={{ color: '#555', fontSize: 14, marginBottom: 12 }}>
-            No se han registrado pagos aún.
-          </Text>
-        ) : (
-          pagos.map((pago, index) => (
-            <View key={index} style={styles.paymentItem}>
-              <Text style={styles.paymentText}>
-                {formatearFecha(pago.fecha)} — ${pago.monto}
-              </Text>
+              <View>
+                <Text style={styles.clientName}>{prestamo.cliente}</Text>
+                <View style={styles.statusBadge}>
+                  <View style={[styles.statusDot, { backgroundColor: prestamo.estado === 'activo' ? theme.colors.success : theme.colors.textLight }]} />
+                  <Text style={styles.statusText}>{prestamo.estado.toUpperCase()}</Text>
+                </View>
+              </View>
             </View>
-          ))
-        )}
+          </View>
+        </LinearGradient>
 
-        <TouchableOpacity style={styles.deleteButton} onPress={eliminarPrestamo}>
-          <Text style={styles.deleteButtonText}>🗑️ Eliminar Préstamo</Text>
-        </TouchableOpacity>
+        <View style={styles.content}>
+          {/* Main Stats */}
+          <View style={styles.statsGrid}>
+            <View style={[styles.statCard, { backgroundColor: '#EEF2FF' }]}>
+              <DollarSign color={theme.colors.primary} size={20} />
+              <Text style={styles.statLabel}>Total a Pagar</Text>
+              <Text style={styles.statValue}>${montoTotal.toFixed(2)}</Text>
+            </View>
+            <View style={[styles.statCard, { backgroundColor: '#ECFDF5' }]}>
+              <TrendingUp color={theme.colors.success} size={20} />
+              <Text style={styles.statLabel}>Saldo Pendiente</Text>
+              <Text style={[styles.statValue, { color: theme.colors.success }]}>${saldoPendiente.toFixed(2)}</Text>
+            </View>
+          </View>
 
+          {/* Progress Bar */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressLabel}>Progreso de Pago</Text>
+              <Text style={styles.progressValue}>{progreso}%</Text>
+            </View>
+            <View style={styles.progressBarBg}>
+              <View style={[styles.progressBarFill, { width: `${progreso}%` }]} />
+            </View>
+          </View>
+
+          {/* Loan Details */}
+          <View style={styles.detailsCard}>
+            <Text style={styles.sectionTitle}>Detalles del Préstamo</Text>
+            <View style={styles.detailItem}>
+              <Clock color={theme.colors.textLight} size={18} />
+              <View style={styles.detailInfo}>
+                <Text style={styles.detailLabel}>Frecuencia</Text>
+                <Text style={styles.detailValue}>{prestamo.frecuencia}</Text>
+              </View>
+            </View>
+            <View style={styles.detailItem}>
+              <CalendarIcon color={theme.colors.textLight} size={18} />
+              <View style={styles.detailInfo}>
+                <Text style={styles.detailLabel}>Vencimiento</Text>
+                <Text style={styles.detailValue}>{formatearFecha(prestamo.fecha_vencimiento)}</Text>
+              </View>
+            </View>
+            <View style={styles.detailItem}>
+              <CreditCard color={theme.colors.textLight} size={18} />
+              <View style={styles.detailInfo}>
+                <Text style={styles.detailLabel}>Tasa de Interés</Text>
+                <Text style={styles.detailValue}>{prestamo.interes}%</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Calendar */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Calendario de Pagos</Text>
+          </View>
+          <View style={styles.calendarContainer}>
+            <View style={styles.calendarControls}>
+              <TouchableOpacity onPress={retrocederMes} style={styles.navIcon}>
+                <ChevronLeft color={theme.colors.text} size={20} />
+              </TouchableOpacity>
+              <Text style={styles.monthName}>
+                {nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1)} {añoActual}
+              </Text>
+              <TouchableOpacity onPress={avanzarMes} style={styles.navIcon}>
+                <ChevronRight color={theme.colors.text} size={20} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.calendarGrid}>
+              {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((dia, i) => (
+                <Text key={i} style={styles.dayHeaderLabel}>{dia}</Text>
+              ))}
+              {diasDelMes.map(({ fecha, dia }, index) => {
+                let statusColor = 'transparent';
+                let textColor = theme.colors.text;
+
+                if (dia === 0) return <View key={index} style={styles.dayBox} />;
+
+                if (pagosRealizadosFechas.includes(fecha)) {
+                  statusColor = theme.colors.success;
+                  textColor = '#fff';
+                } else if (pagosEsperados.includes(fecha)) {
+                  const vencido = new Date(fecha) < new Date();
+                  statusColor = vencido ? theme.colors.danger : theme.colors.warning;
+                  textColor = '#fff';
+                }
+
+                return (
+                  <View key={index} style={styles.dayBox}>
+                    <View style={[styles.dayIndicator, { backgroundColor: statusColor }]}>
+                      <Text style={[styles.dayText, { color: textColor }]}>{dia}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+
+            <View style={styles.legend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: theme.colors.success }]} />
+                <Text style={styles.legendText}>Pagado</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: theme.colors.warning }]} />
+                <Text style={styles.legendText}>Pendiente</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: theme.colors.danger }]} />
+                <Text style={styles.legendText}>Atrasado</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* History */}
+          <Text style={styles.sectionTitle}>Historial de Pagos</Text>
+          <View style={styles.historyList}>
+            {pagos.length === 0 ? (
+              <View style={styles.emptyState}>
+                <AlertCircle color={theme.colors.textLight} size={40} />
+                <Text style={styles.emptyText}>No hay pagos registrados</Text>
+              </View>
+            ) : (
+              pagos.map((pago, index) => (
+                <View key={index} style={styles.historyItem}>
+                  <View style={styles.historyIcon}>
+                    <CheckCircle2 color={theme.colors.success} size={20} />
+                  </View>
+                  <View style={styles.historyInfo}>
+                    <Text style={styles.historyDate}>{formatearFecha(pago.fecha)}</Text>
+                    <Text style={styles.historyStatus}>Pago realizado exitosamente</Text>
+                  </View>
+                  <Text style={styles.historyAmount}>+${pago.monto.toFixed(2)}</Text>
+                </View>
+              ))
+            )}
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#E6F4F1', // o el color que uses de fondo
-  },
-
   container: {
-    backgroundColor: '#E6F4F1',
-    padding: 16,
+    flex: 1,
+    backgroundColor: theme.colors.background,
   },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#003366',
-    marginBottom: 12,
-    textAlign: 'center',
+  center: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 20,
+  header: {
+    paddingBottom: 30,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
-  headerRow: {
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerContent: {
+    paddingHorizontal: 24,
+    marginTop: 20,
+  },
+  clientInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#4A90E2',
-    marginRight: 12,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
   },
   clientName: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#003366',
+    color: '#fff',
   },
-  subText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  estadoBadge: {
-    backgroundColor: '#50C878',
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
+    marginTop: 4,
+    alignSelf: 'flex-start',
   },
-  estadoText: {
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  statusText: {
     color: '#fff',
+    fontSize: 10,
     fontWeight: 'bold',
-    fontSize: 12,
   },
-  summaryRow: {
+  content: {
+    padding: theme.spacing.md,
+  },
+  statsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginVertical: 12,
+    marginTop: -20,
+    marginBottom: 24,
   },
-  summaryBox: {
-    backgroundColor: '#f0f0f0',
-    padding: 12,
-    borderRadius: 8,
+  statCard: {
     flex: 0.48,
+    padding: 16,
+    borderRadius: 20,
+    ...theme.shadows.sm,
   },
-  summaryLabel: {
-    fontSize: 14,
-    color: '#555',
+  statLabel: {
+    fontSize: 12,
+    color: theme.colors.textLight,
+    marginTop: 8,
   },
-  summaryValue: {
+  statValue: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#003366',
+    color: theme.colors.primary,
+    marginTop: 4,
+  },
+  progressContainer: {
+    backgroundColor: theme.colors.surface,
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 24,
+    ...theme.shadows.xs,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  progressLabel: {
+    fontSize: 14,
+    color: theme.colors.text,
+    fontWeight: '600',
+  },
+  progressValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+  },
+  progressBarBg: {
+    height: 8,
+    backgroundColor: theme.colors.border,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: theme.colors.primary,
+    borderRadius: 4,
+  },
+  detailsCard: {
+    backgroundColor: theme.colors.surface,
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 24,
+    ...theme.shadows.xs,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#003366',
-    marginTop: 16,
-    marginBottom: 8,
+    color: theme.colors.text,
+    marginBottom: 16,
   },
-  detailText: {
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  detailInfo: {
+    marginLeft: 12,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: theme.colors.textLight,
+    textTransform: 'uppercase',
+  },
+  detailValue: {
     fontSize: 14,
-    color: '#555',
-    marginBottom: 4,
+    fontWeight: '600',
+    color: theme.colors.text,
   },
-  calendarHeader: {
+  calendarContainer: {
+    backgroundColor: theme.colors.surface,
+    padding: 16,
+    borderRadius: 24,
+    marginBottom: 24,
+    ...theme.shadows.sm,
+  },
+  calendarControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 15,
   },
-  navButton: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#003366',
-    paddingHorizontal: 12,
+  navIcon: {
+    padding: 8,
+    backgroundColor: theme.colors.background,
+    borderRadius: 10,
   },
-  monthLabel: {
+  monthName: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#003366',
+    color: theme.colors.text,
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-start',
-    width: 280, // 40px × 7 días
-    alignSelf: 'center',
-    marginBottom: 20,
   },
-
-  dayHeader: {
-    width: 40,
+  dayHeaderLabel: {
+    width: '14.28%',
     textAlign: 'center',
+    fontSize: 12,
     fontWeight: 'bold',
-    color: '#003366',
-    marginBottom: 4,
+    color: theme.colors.textLight,
+    marginBottom: 10,
   },
-
-  dayBoxGrid: {
-    width: 40,
-    height: 40,
+  dayBox: {
+    width: '14.28%',
+    aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 6,
-    marginBottom: 4,
+    padding: 4,
   },
-
-  dayText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  paymentItem: {
-    backgroundColor: '#fff',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  paymentText: {
-    color: '#333',
-    fontSize: 14,
-  },
-
-  deleteButton: {
-    backgroundColor: '#F44336',
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginTop: 30, // antes era 20
-    marginBottom: 30,
+  dayIndicator: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  deleteButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
+  dayText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
-
+  legend: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 15,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  legendText: {
+    fontSize: 10,
+    color: theme.colors.textLight,
+  },
+  historyList: {
+    marginBottom: 30,
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    padding: 16,
+    borderRadius: 20,
+    marginBottom: 12,
+    ...theme.shadows.xs,
+  },
+  historyIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  historyInfo: {
+    flex: 1,
+  },
+  historyDate: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  historyStatus: {
+    fontSize: 12,
+    color: theme.colors.textLight,
+  },
+  historyAmount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: theme.colors.success,
+  },
+  emptyState: {
+    alignItems: 'center',
+    padding: 40,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 20,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  emptyText: {
+    marginTop: 10,
+    color: theme.colors.textLight,
+    fontSize: 14,
+  },
 });
 

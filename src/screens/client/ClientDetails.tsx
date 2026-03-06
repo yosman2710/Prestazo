@@ -7,10 +7,24 @@ import {
   Alert,
   StyleSheet,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  Phone,
+  MapPin,
+  FileText,
+  Calendar,
+  ChevronRight,
+  Trash2,
+  Edit3,
+  ArrowLeft,
+  CreditCard,
+  History,
+  AlertCircle
+} from 'lucide-react-native';
 import { supabase } from '../../utils/supabase';
+import { theme } from '../../utils/theme';
 import { RootStackParamList } from '../../navegation/type';
 import { Prestamo, Cliente } from '../../types';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,43 +35,47 @@ export default function ClientDetailScreen() {
   const { clientId } = route.params;
 
   const [cliente, setCliente] = useState<Cliente | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const cargarDatos = async () => {
+    setLoading(true);
+    try {
+      const { data: clienteBase, error: clientError } = await supabase
+        .from('clientes')
+        .select('*')
+        .eq('id', clientId)
+        .single();
+
+      if (clientError) throw clientError;
+
+      const { data: prestamos, error: loansError } = await supabase
+        .from('prestamos')
+        .select('*')
+        .eq('cliente_id', clientId)
+        .order('fecha_inicio', { ascending: false });
+
+      if (loansError) throw loansError;
+
+      if (clienteBase) {
+        setCliente({
+          id: clientId,
+          nombre: clienteBase.nombre,
+          telefono: clienteBase.telefono,
+          direccion: clienteBase.direccion ?? '',
+          nota: clienteBase.nota ?? '',
+          fechaIngreso: clienteBase.fecha_ingreso,
+          prestamos: prestamos || [],
+        });
+      }
+    } catch (error: any) {
+      console.error('Error al cargar cliente:', error);
+      Alert.alert('Error', error.message || 'No se pudo cargar la información del cliente');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const cargarDatos = async () => {
-      try {
-        const { data: clienteBase, error: clientError } = await supabase
-          .from('clientes')
-          .select('*')
-          .eq('id', clientId)
-          .single();
-
-        if (clientError) throw clientError;
-
-        const { data: prestamos, error: loansError } = await supabase
-          .from('prestamos')
-          .select('*')
-          .eq('cliente_id', clientId)
-          .order('fecha_inicio', { ascending: false });
-
-        if (loansError) throw loansError;
-
-        if (clienteBase) {
-          setCliente({
-            id: clientId,
-            nombre: clienteBase.nombre,
-            telefono: clienteBase.telefono,
-            direccion: clienteBase.direccion ?? '',
-            nota: clienteBase.nota ?? '',
-            fechaIngreso: clienteBase.fecha_ingreso,
-            prestamos: prestamos || [],
-          });
-        }
-      } catch (error: any) {
-        console.error('Error al cargar cliente:', error);
-        Alert.alert('Error', error.message || 'No se pudo cargar la información del cliente');
-      }
-    };
-
     cargarDatos();
   }, [clientId]);
 
@@ -65,13 +83,13 @@ export default function ClientDetailScreen() {
     if (!cliente) return;
 
     if (cliente.prestamos.some(p => p.estado === 'activo')) {
-      Alert.alert('No permitido', 'Este cliente tiene préstamos activos. Cancele los préstamos antes de eliminar al cliente.');
+      Alert.alert('No permitido', 'Este cliente tiene préstamos activos. Liquide los préstamos antes de eliminar al cliente.');
       return;
     }
 
     Alert.alert(
       '¿Eliminar cliente?',
-      'Esta acción eliminará también sus préstamos y pagos asociados.',
+      'Esta acción eliminará permanentemente al cliente y su historial de pagos.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -85,12 +103,10 @@ export default function ClientDetailScreen() {
                 .eq('id', cliente.id);
 
               if (error) throw error;
-
-              Alert.alert('Eliminado', 'Cliente y datos asociados eliminados');
               navigation.goBack();
             } catch (error: any) {
               console.error('Error al eliminar cliente:', error);
-              Alert.alert('Error', error.message || 'No se pudo eliminar el cliente');
+              Alert.alert('Error', 'No se pudo eliminar el cliente');
             }
           },
         },
@@ -98,295 +114,384 @@ export default function ClientDetailScreen() {
     );
   };
 
-  const getEstadoColor = (estado: Prestamo['estado']) => {
+  const getEstadoColor = (estado: string) => {
     switch (estado) {
-      case 'activo':
-        return '#50C878';
-      case 'pagado':
-        return '#ccc';
-      case 'vencido':
-        return '#FF6347';
-      default:
-        return '#999';
+      case 'activo': return theme.colors.cardOrange;
+      case 'pagado': return theme.colors.success;
+      case 'vencido': return theme.colors.danger;
+      default: return theme.colors.textLight;
     }
   };
 
   if (!cliente) return null;
 
   const prestamosActivos = cliente.prestamos.filter((p: any) => p.estado === 'activo').length;
-  const saldoTotal = cliente.prestamos.reduce((acc: number, p: any) => acc + p.saldo, 0);
-  const totalPagado = cliente.prestamos.reduce((acc: number, p: any) => acc + p.total_pagado, 0);
+  const saldoTotal = cliente.prestamos.reduce((acc: number, p: any) => acc + (p.saldo || 0), 0);
+  const totalPagado = cliente.prestamos.reduce((acc: number, p: any) => acc + (p.total_pagado || 0), 0);
+
   const formatearFecha = (iso: string) => {
     const fecha = new Date(iso);
-    return `${fecha.getDate().toString().padStart(2, '0')}/${(fecha.getMonth() + 1).toString().padStart(2, '0')
-      }/${fecha.getFullYear()}`;
+    return fecha.toLocaleDateString('es-VE', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.container}>
-        <View style={styles.card}>
-          <View style={styles.headerRow}>
-            <View style={styles.avatar} />
-            <View>
-              <Text style={styles.clientName}>{cliente.nombre}</Text>
-              <Text style={styles.subText}>
-                Cliente desde: {formatearFecha(cliente.fechaIngreso)}
-              </Text>
+    <View style={styles.container}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <LinearGradient
+          colors={[theme.colors.primary, '#0052D4']}
+          style={styles.headerGradient}
+        >
+          <SafeAreaView edges={['top']}>
+            <View style={styles.headerActions}>
+              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                <ArrowLeft color="#fff" size={24} />
+              </TouchableOpacity>
+              <View style={styles.headerRightActions}>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('EditClient', { clientId: cliente.id })}
+                  style={styles.headerBtn}
+                >
+                  <Edit3 color="#fff" size={20} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={eliminarCliente} style={styles.headerBtn}>
+                  <Trash2 color="#fff" size={20} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </SafeAreaView>
 
+          <View style={styles.profileInfo}>
+            <View style={styles.avatarLarge}>
+              <Text style={styles.avatarTextLarge}>{cliente.nombre[0].toUpperCase()}</Text>
+            </View>
+            <Text style={styles.clientNameLarge}>{cliente.nombre}</Text>
+            <View style={styles.entryDateContainer}>
+              <Calendar color="rgba(255,255,255,0.7)" size={14} />
+              <Text style={styles.entryDateText}>Desde {formatearFecha(cliente.fechaIngreso)}</Text>
             </View>
           </View>
-          <View style={styles.summaryContainer}>
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryLabel}>Préstamos Activos</Text>
-                <Text style={styles.summaryValue}>{prestamosActivos}</Text>
-              </View>
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryLabel}>Total Pagado</Text>
-                <Text style={styles.summaryValue}>${totalPagado.toFixed(2)}</Text>
-              </View>
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryLabel}>Saldo Total</Text>
-                <Text style={styles.summaryValue}>${saldoTotal.toFixed(2)}</Text>
-              </View>
-            </View>
-          </View>s
+        </LinearGradient>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>📞 Teléfono</Text>
-            <Text style={styles.infoText}>{cliente.telefono}</Text>
+        <View style={styles.content}>
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <CreditCard color={theme.colors.cardOrange} size={20} />
+              <Text style={styles.statValue}>${saldoTotal.toLocaleString()}</Text>
+              <Text style={styles.statLabel}>Saldo Total</Text>
+            </View>
+            <View style={styles.statCard}>
+              <History color={theme.colors.success} size={20} />
+              <Text style={styles.statValue}>${totalPagado.toLocaleString()}</Text>
+              <Text style={styles.statLabel}>Total Pagado</Text>
+            </View>
+            <View style={styles.statCard}>
+              <AlertCircle color={theme.colors.primary} size={20} />
+              <Text style={styles.statValue}>{prestamosActivos}</Text>
+              <Text style={styles.statLabel}>Activos</Text>
+            </View>
           </View>
 
-          {cliente.direccion && (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>📍 Dirección</Text>
-              <Text style={styles.infoText}>{cliente.direccion}</Text>
-            </View>
-          )}
-
-          {cliente.nota && (
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>📝 Nota</Text>
-              <Text style={styles.infoText}>{cliente.nota}</Text>
-            </View>
-          )}
-        </View>
-
-        <Text style={styles.sectionTitle}>Préstamos</Text>
-        {cliente.prestamos.length === 0 ? (
-          <Text style={{ color: '#555', fontSize: 14, marginBottom: 12 }}>
-            Este cliente aún no tiene préstamos registrados.
-          </Text>
-        ) : (
-          cliente.prestamos.map((p: any) => (
-            <View key={p.id} style={styles.loanCard}>
-              <View style={styles.loanHeader}>
-                <Text style={styles.loanTitle}>Préstamo #{p.id}</Text>
-                <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(p.estado) }]}>
-                  <Text style={styles.estadoText}>{p.estado}</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Contacto</Text>
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <View style={styles.infoIcon}>
+                  <Phone color={theme.colors.primary} size={18} />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabelText}>Teléfono</Text>
+                  <Text style={styles.infoValueText}>{cliente.telefono}</Text>
                 </View>
               </View>
-              <TouchableOpacity
-                onPress={() => navigation.navigate('LoanDetailScreen', { prestamoId: p.id })}
-              >
-                <Text style={{ color: '#2196F3', marginTop: 8 }}>Ver Detalle</Text>
-              </TouchableOpacity>
-              <Text style={styles.loanDetail}>Monto Original: ${p.monto}</Text>
-              <Text style={styles.loanDetail}>Saldo Actual: ${p.saldo}</Text>
-              <Text style={styles.loanDetail}>Pagado: ${p.total_pagado}</Text>
-              <Text style={styles.loanDetail}>Interés: {p.interes}%</Text>
-              <Text style={styles.loanDetail}>Frecuencia: {p.frecuencia}</Text>
-              <Text style={styles.loanDetail}>Cuotas: {p.cantidad_cuotas}</Text>
-              <Text style={styles.loanDetail}>Inicio: {p.fecha_inicio}</Text>
-              <Text style={styles.loanDetail}>Vencimiento: {p.fecha_vencimiento}</Text>
+
+              {cliente.direccion && (
+                <View style={styles.infoRow}>
+                  <View style={styles.infoIcon}>
+                    <MapPin color={theme.colors.primary} size={18} />
+                  </View>
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabelText}>Dirección</Text>
+                    <Text style={styles.infoValueText}>{cliente.direccion}</Text>
+                  </View>
+                </View>
+              )}
+
+              {cliente.nota && (
+                <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
+                  <View style={styles.infoIcon}>
+                    <FileText color={theme.colors.primary} size={18} />
+                  </View>
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabelText}>Notas</Text>
+                    <Text style={styles.infoValueText}>{cliente.nota}</Text>
+                  </View>
+                </View>
+              )}
             </View>
-          ))
-        )}
+          </View>
 
-        <View style={styles.buttonGroup}>
-          <TouchableOpacity
-            style={[styles.editButton, { backgroundColor: '#4d47ff' }]}
-            onPress={() => navigation.navigate('EditClient', { clientId: cliente.id })}
-          >
-            <Text style={styles.editText}>Editar Cliente</Text>
-          </TouchableOpacity>
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Historial de Préstamos</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('CreateLoan', { clientId: cliente.id })}>
+                <Text style={styles.addLoanText}>+ Nuevo</Text>
+              </TouchableOpacity>
+            </View>
 
-          <TouchableOpacity
-            style={[styles.editButton, { backgroundColor: '#FF6347' }]}
-            onPress={eliminarCliente}
-          >
-            <Text style={styles.editText}>Eliminar Cliente</Text>
-          </TouchableOpacity>
+            {cliente.prestamos.length === 0 ? (
+              <View style={styles.emptyLoans}>
+                <Text style={styles.emptyLoansText}>No hay préstamos registrados</Text>
+              </View>
+            ) : (
+              cliente.prestamos.map((p: any) => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={styles.loanItem}
+                  onPress={() => navigation.navigate('LoanDetailScreen', { prestamoId: p.id })}
+                >
+                  <View style={styles.loanInfo}>
+                    <Text style={styles.loanId}>Préstamo #{p.id.toString().slice(-4)}</Text>
+                    <Text style={styles.loanAmount}>${p.monto.toLocaleString()}</Text>
+                    <Text style={styles.loanDate}>{formatearFecha(p.fecha_inicio)}</Text>
+                  </View>
+                  <View style={styles.loanStatusContainer}>
+                    <View style={[styles.statusBadge, { backgroundColor: getEstadoColor(p.estado) + '20' }]}>
+                      <Text style={[styles.statusText, { color: getEstadoColor(p.estado) }]}>
+                        {p.estado.toUpperCase()}
+                      </Text>
+                    </View>
+                    <ChevronRight color={theme.colors.border} size={20} />
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
         </View>
-
-
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F6FA',
-    padding: 16,
+    backgroundColor: theme.colors.background,
   },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 28,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
+  headerGradient: {
+    paddingBottom: 30,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#D9E3F0',
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  clientName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#003366',
-  },
-  subText: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 20,
-    marginTop: 12,
-  },
-  summaryBox: {
-    flexGrow: 1,
-    flexBasis: '30%',
-    backgroundColor: '#E6F4F1',
-    padding: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-
-  summaryLabel: {
-    fontSize: 13,
-    color: '#555',
-    marginBottom: 4,
-  },
-  summaryValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#003366',
-  },
-  infoRow: {
+  headerActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingTop: 10,
+  },
+  backButton: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  headerBtn: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  profileInfo: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  avatarLarge: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: '#fff',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...theme.shadows.md,
+    borderWidth: 4,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
-  infoLabel: {
-    fontSize: 14,
+  avatarTextLarge: {
+    fontSize: 40,
+    fontWeight: '900',
+    color: theme.colors.primary,
+  },
+  clientNameLarge: {
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#003366',
+    color: '#fff',
+    marginTop: 15,
   },
-  infoText: {
-    fontSize: 14,
-    color: '#333',
-    maxWidth: '60%',
-    textAlign: 'right',
+  entryDateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  entryDateText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    marginLeft: 6,
+    fontWeight: '600',
+  },
+  content: {
+    padding: theme.spacing.md,
+    marginTop: -20,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 20,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+    padding: 15,
+    borderRadius: 20,
+    alignItems: 'center',
+    ...theme.shadows.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginTop: 8,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: theme.colors.textLight,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  section: {
+    marginBottom: 25,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#003366',
+    color: theme.colors.text,
     marginBottom: 12,
-    marginTop: 16,
   },
-  loanCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  loanHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  loanTitle: {
-    fontSize: 16,
+  addLoanText: {
+    color: theme.colors.primary,
     fontWeight: 'bold',
-    color: '#003366',
-  },
-  estadoBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  estadoText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
-  loanDetail: {
     fontSize: 14,
-    color: '#444',
-    marginBottom: 4,
   },
-
-
-  editText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
+  infoCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
+    padding: 5,
+    ...theme.shadows.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  editButton: {
-    paddingVertical: 14,
+  infoRow: {
+    flexDirection: 'row',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  infoIcon: {
+    width: 36,
+    height: 36,
     borderRadius: 10,
+    backgroundColor: theme.colors.background,
+    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 3,
+    marginRight: 15,
   },
-  buttonGroup: {
-    marginTop: 20,
-    marginBottom: 40, // ← esto le da espacio para que no se corte
-    gap: 12,
+  infoContent: {
+    flex: 1,
   },
-  summaryContainer: {
-    marginBottom: 24, // ← separa los cuadros del título "Préstamos"
+  infoLabelText: {
+    fontSize: 11,
+    color: theme.colors.textLight,
+    fontWeight: '600',
   },
-
-
-
+  infoValueText: {
+    fontSize: 15,
+    color: theme.colors.text,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  loanItem: {
+    backgroundColor: theme.colors.surface,
+    padding: 15,
+    borderRadius: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadows.xs,
+  },
+  loanInfo: {
+    flex: 1,
+  },
+  loanId: {
+    fontSize: 12,
+    color: theme.colors.textLight,
+    fontWeight: '600',
+  },
+  loanAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginTop: 2,
+  },
+  loanDate: {
+    fontSize: 11,
+    color: theme.colors.textLight,
+    marginTop: 2,
+  },
+  loanStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  emptyLoans: {
+    padding: 20,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 15,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  emptyLoansText: {
+    color: theme.colors.textLight,
+    fontSize: 14,
+  },
 });

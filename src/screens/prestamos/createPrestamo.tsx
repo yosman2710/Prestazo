@@ -5,28 +5,47 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Platform,
   Alert,
   StyleSheet,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useNavigation } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  User as UserIcon,
+  DollarSign,
+  Percent,
+  Calendar as CalendarIcon,
+  Clock,
+  ChevronDown,
+  Check as CheckIcon,
+  ArrowLeft,
+  Info,
+  History as HistoryIcon
+} from 'lucide-react-native';
 import { supabase } from '../../utils/supabase';
+import { theme } from '../../utils/theme';
+import { RootStackParamList } from '../../navegation/type';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function CreateLoanScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp>();
+  const route = useRoute<RouteProp<RootStackParamList, 'CreateLoan'>>();
+  const initialClientId = route.params?.clientId;
 
   const [clientes, setClientes] = useState<{ id: string; nombre: string }[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState(initialClientId || '');
   const [selectedClientName, setSelectedClientName] = useState('');
   const [showClientModal, setShowClientModal] = useState(false);
 
   const [amount, setAmount] = useState('');
   const [interest, setInterest] = useState('5.0');
   const [duration, setDuration] = useState('1');
-  const [frequency, setFrequency] = useState('');
+  const [frequency, setFrequency] = useState('Diario');
   const [showFrequencyModal, setShowFrequencyModal] = useState(false);
 
   const [startDate, setStartDate] = useState(new Date());
@@ -44,11 +63,17 @@ export default function CreateLoanScreen() {
         .order('nombre', { ascending: true });
 
       if (!error && data) {
-        setClientes(data.map(c => ({ id: c.id.toString(), nombre: c.nombre })));
+        const enriched = data.map(c => ({ id: c.id.toString(), nombre: c.nombre }));
+        setClientes(enriched);
+
+        if (initialClientId) {
+          const client = enriched.find(c => c.id === initialClientId);
+          if (client) setSelectedClientName(client.nombre);
+        }
       }
     };
     cargarClientes();
-  }, []);
+  }, [initialClientId]);
 
   const calcularFechaVencimiento = (
     fechaInicio: Date,
@@ -71,8 +96,7 @@ export default function CreateLoanScreen() {
     setFrequency(value);
     const cuotas = parseInt(duration);
     if (!isNaN(cuotas)) {
-      const nuevaFecha = calcularFechaVencimiento(startDate, value, cuotas);
-      setDueDate(nuevaFecha);
+      setDueDate(calcularFechaVencimiento(startDate, value, cuotas));
     }
   };
 
@@ -80,45 +104,37 @@ export default function CreateLoanScreen() {
     setDuration(value);
     const cuotas = parseInt(value);
     if (frequency && !isNaN(cuotas)) {
-      const nuevaFecha = calcularFechaVencimiento(startDate, frequency, cuotas);
-      setDueDate(nuevaFecha);
+      setDueDate(calcularFechaVencimiento(startDate, frequency, cuotas));
     }
   };
 
   const handleCreateLoan = async () => {
     if (!selectedClientId || !amount || !interest || !duration || !frequency) {
-      Alert.alert('Campos obligatorios', 'Completa todos los campos requeridos');
+      Alert.alert('Faltan datos', 'Por favor completa todos los campos del préstamo.');
       return;
     }
 
     setIsLoading(true);
     try {
       const monto = parseFloat(amount);
-      const interesNum = parseFloat(interest);
-      const cuotas = parseInt(duration);
-
       const { error } = await supabase
         .from('prestamos')
-        .insert([
-          {
-            cliente_id: parseInt(selectedClientId),
-            monto,
-            saldo: monto,
-            interes: interesNum,
-            fecha_inicio: startDate.toISOString(),
-            fecha_vencimiento: dueDate.toISOString(),
-            frecuencia: frequency,
-            cantidad_cuotas: cuotas,
-            estado: 'activo',
-          },
-        ]);
+        .insert([{
+          cliente_id: parseInt(selectedClientId),
+          monto,
+          saldo: monto,
+          interes: parseFloat(interest),
+          fecha_inicio: startDate.toISOString(),
+          fecha_vencimiento: dueDate.toISOString(),
+          frecuencia: frequency,
+          cantidad_cuotas: parseInt(duration),
+          estado: 'activo',
+        }]);
 
       if (error) throw error;
-
-      Alert.alert('Éxito', 'Préstamo creado correctamente');
+      Alert.alert('¡Éxito!', 'Préstamo registrado correctamente');
       navigation.goBack();
     } catch (error: any) {
-      console.error('Error al crear préstamo:', error);
       Alert.alert('Error', error.message || 'No se pudo crear el préstamo');
     } finally {
       setIsLoading(false);
@@ -127,137 +143,146 @@ export default function CreateLoanScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollContent}>
-        {/* Cliente */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Seleccionar Cliente</Text>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.headerIndicator}>
+          <Text style={styles.headerTitle}>Nuevo Préstamo</Text>
+          <Text style={styles.headerSubtitle}>Define los términos del crédito</Text>
+        </View>
+
+        <View style={styles.formSection}>
+          <Text style={styles.inputLabel}>Cliente</Text>
           <TouchableOpacity
-            style={styles.selectBox}
-            onPress={() => setShowClientModal(true)}
+            style={[styles.inputContainer, initialClientId && styles.disabledInput]}
+            onPress={() => !initialClientId && setShowClientModal(true)}
+            disabled={!!initialClientId}
           >
-            <Text style={styles.selectText}>
-              {selectedClientName || 'Seleccionar cliente'}
+            <UserIcon color={theme.colors.primary} size={20} />
+            <Text style={[styles.inputText, !selectedClientName && styles.placeholderText]}>
+              {selectedClientName || 'Seleccionar un cliente'}
             </Text>
+            {!initialClientId && <ChevronDown color={theme.colors.textLight} size={20} />}
           </TouchableOpacity>
         </View>
 
-        {/* Detalles del préstamo */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Detalles del Préstamo</Text>
+        <View style={styles.formSection}>
+          <Text style={styles.inputLabel}>Detalles Financieros</Text>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Monto del préstamo"
-            keyboardType="numeric"
-            value={amount}
-            onChangeText={setAmount}
-          />
+          <View style={styles.inputContainer}>
+            <DollarSign color={theme.colors.primary} size={20} />
+            <TextInput
+              style={styles.textInput}
+              placeholder="Monto del préstamo"
+              keyboardType="numeric"
+              value={amount}
+              onChangeText={setAmount}
+              placeholderTextColor={theme.colors.textLight}
+            />
+          </View>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Porcentaje de interés (%)"
-            keyboardType="numeric"
-            value={interest}
-            onChangeText={setInterest}
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="Cantidad de cuotas"
-            keyboardType="numeric"
-            value={duration}
-            onChangeText={handleDurationChange}
-          />
+          <View style={styles.row}>
+            <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+              <Percent color={theme.colors.primary} size={18} />
+              <TextInput
+                style={styles.textInput}
+                placeholder="Interés (%)"
+                keyboardType="numeric"
+                value={interest}
+                onChangeText={setInterest}
+              />
+            </View>
+            <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+              <Clock color={theme.colors.primary} size={18} />
+              <TextInput
+                style={styles.textInput}
+                placeholder="Cuotas"
+                keyboardType="numeric"
+                value={duration}
+                onChangeText={handleDurationChange}
+              />
+            </View>
+          </View>
 
           <TouchableOpacity
-            style={styles.selectBox}
+            style={styles.inputContainer}
             onPress={() => setShowFrequencyModal(true)}
           >
-            <Text style={styles.selectText}>
-              {frequency || 'Seleccionar frecuencia de pago'}
-            </Text>
+            <HistoryIcon color={theme.colors.primary} size={20} />
+            <Text style={styles.inputText}>{frequency}</Text>
+            <ChevronDown color={theme.colors.textLight} size={20} />
           </TouchableOpacity>
+        </View>
 
-          {/* Fecha de inicio */}
+        <View style={styles.formSection}>
+          <Text style={styles.inputLabel}>Fechas</Text>
           <TouchableOpacity
-            style={styles.selectBox}
+            style={styles.inputContainer}
             onPress={() => setShowStartPicker(true)}
           >
-            <Text style={styles.selectText}>
-              Fecha de inicio: {startDate.toLocaleDateString()}
-            </Text>
+            <CalendarIcon color={theme.colors.primary} size={20} />
+            <Text style={styles.inputText}>Inicio: {startDate.toLocaleDateString()}</Text>
           </TouchableOpacity>
-          {showStartPicker && (
-            <DateTimePicker
-              value={startDate}
-              mode="date"
-              display={Platform.OS === 'ios' ? 'inline' : 'default'}
-              onChange={(event, date) => {
-                setShowStartPicker(false);
-                if (date) {
-                  setStartDate(date);
-                  const cuotas = parseInt(duration);
-                  if (frequency && !isNaN(cuotas)) {
-                    const nuevaFecha = calcularFechaVencimiento(date, frequency, cuotas);
-                    setDueDate(nuevaFecha);
-                  }
-                }
-              }}
-            />
-          )}
 
-          {/* Fecha de vencimiento */}
-          <View style={styles.selectBox}>
-            <Text style={styles.selectText}>
-              Fecha de vencimiento: {dueDate.toLocaleDateString()}
-            </Text>
+          <View style={[styles.inputContainer, styles.disabledInput]}>
+            <CalendarIcon color={theme.colors.textLight} size={20} />
+            <Text style={styles.disabledText}>Vencimiento: {dueDate.toLocaleDateString()}</Text>
           </View>
         </View>
 
+        <View style={styles.infoBox}>
+          <Info color={theme.colors.primary} size={16} />
+          <Text style={styles.infoText}>
+            El interés se calcula sobre el monto total. El vencimiento se ajusta según la frecuencia y cuotas.
+          </Text>
+        </View>
+
         <TouchableOpacity
-          style={[styles.submitButton, isLoading && { opacity: 0.7 }]}
+          style={[styles.submitButton, isLoading && styles.disabledButton]}
           onPress={handleCreateLoan}
           disabled={isLoading}
         >
-          <Text style={styles.submitText}>
-            {isLoading ? 'Cargando...' : 'Crear Préstamo'}
-          </Text>
+          {isLoading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <CheckIcon color="#fff" size={20} style={{ marginRight: 8 }} />
+              <Text style={styles.submitButtonText}>Crear Préstamo</Text>
+            </>
+          )}
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Modal de clientes */}
-      <Modal visible={showClientModal} transparent animationType="fade">
+      {/* Modals are unchanged but updated styled */}
+      <Modal visible={showClientModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Selecciona un cliente</Text>
-            {clientes.map((c) => (
-              <TouchableOpacity
-                key={c.id}
-                style={styles.modalItem}
-                onPress={() => {
-                  setSelectedClientId(c.id);
-                  setSelectedClientName(c.nombre);
-                  setShowClientModal(false);
-                }}
-              >
-                <Text style={styles.modalText}>{c.nombre}</Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-              style={styles.modalClose}
-              onPress={() => setShowClientModal(false)}
-            >
-              <Text style={styles.modalCloseText}>Cancelar</Text>
+            <Text style={styles.modalTitle}>Seleccionar Cliente</Text>
+            <ScrollView style={{ maxHeight: 400 }}>
+              {clientes.map((c) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.modalItem}
+                  onPress={() => {
+                    setSelectedClientId(c.id);
+                    setSelectedClientName(c.nombre);
+                    setShowClientModal(false);
+                  }}
+                >
+                  <Text style={styles.modalText}>{c.nombre}</Text>
+                  {selectedClientId === c.id && <CheckIcon color={theme.colors.primary} size={20} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowClientModal(false)}>
+              <Text style={styles.modalCloseText}>Cerrar</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Modal de frecuencia */}
-      <Modal visible={showFrequencyModal} transparent animationType="fade">
+      <Modal visible={showFrequencyModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Frecuencia de pago</Text>
+            <Text style={styles.modalTitle}>Frecuencia de Pago</Text>
             {frecuencias.map((f) => (
               <TouchableOpacity
                 key={f}
@@ -268,153 +293,186 @@ export default function CreateLoanScreen() {
                 }}
               >
                 <Text style={styles.modalText}>{f}</Text>
+                {frequency === f && <CheckIcon color={theme.colors.primary} size={20} />}
               </TouchableOpacity>
             ))}
-            <TouchableOpacity
-              style={styles.modalClose}
-              onPress={() => setShowFrequencyModal(false)}
-            >
-              <Text style={styles.modalCloseText}>Cancelar</Text>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowFrequencyModal(false)}>
+              <Text style={styles.modalCloseText}>Cerrar</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
+      {showStartPicker && (
+        <DateTimePicker
+          value={startDate}
+          mode="date"
+          display="default"
+          onChange={(event, date) => {
+            setShowStartPicker(false);
+            if (date) {
+              setStartDate(date);
+              const cuotas = parseInt(duration);
+              if (frequency && !isNaN(cuotas)) {
+                setDueDate(calcularFechaVencimiento(date, frequency, cuotas));
+              }
+            }
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
-
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E6F4F1',
+    backgroundColor: theme.colors.background,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
+    padding: theme.spacing.md,
   },
-  title: {
-    fontSize: 22,
+  headerIndicator: {
+    marginVertical: 20,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#003366',
-    marginBottom: 12,
-    textAlign: 'center',
+    color: theme.colors.text,
   },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
+  headerSubtitle: {
+    fontSize: 14,
+    color: theme.colors.textLight,
+    marginTop: 4,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#003366',
+  formSection: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.textLight,
     marginBottom: 8,
+    marginLeft: 4,
+    textTransform: 'uppercase',
   },
-  input: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 15,
+    borderRadius: 16,
+    height: 56,
     borderWidth: 1,
-    borderColor: '#ccc',
-    marginBottom: 10,
-    fontSize: 14,
-    color: '#333',
+    borderColor: theme.colors.border,
+    marginBottom: 12,
+    ...theme.shadows.xs,
   },
-  selectBox: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    marginBottom: 10,
+  textInput: {
+    flex: 1,
+    marginLeft: 12,
+    fontSize: 16,
+    color: theme.colors.text,
   },
-  selectText: {
-    fontSize: 14,
-    color: '#555',
+  inputText: {
+    flex: 1,
+    marginLeft: 12,
+    fontSize: 16,
+    color: theme.colors.text,
   },
-  label: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 4,
+  placeholderText: {
+    color: theme.colors.textLight,
+  },
+  disabledInput: {
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderColor: 'transparent',
+  },
+  disabledText: {
+    flex: 1,
+    marginLeft: 12,
+    fontSize: 16,
+    color: theme.colors.textLight,
   },
   row: {
     flexDirection: 'row',
+  },
+  infoBox: {
+    flexDirection: 'row',
+    backgroundColor: '#EEF2FF',
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 30,
     alignItems: 'center',
-    marginBottom: 10,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#1E40AF',
+    marginLeft: 10,
+    lineHeight: 18,
   },
   submitButton: {
-    backgroundColor: '#2196F3',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  submitText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  backButton: {
-    marginBottom: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: '#ccc',
-    borderRadius: 6,
-    alignSelf: 'flex-start',
-  },
-  backButtonText: {
-    color: '#333',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-
-  // Modal styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.primary,
+    height: 60,
+    borderRadius: 18,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    ...theme.shadows.md,
   },
-  modalContent: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 10,
-    width: '80%',
+  disabledButton: {
+    opacity: 0.6,
   },
-  modalTitle: {
+  submitButtonText: {
+    color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 12,
-    color: '#003366',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: theme.colors.surface,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 24,
+    ...theme.shadows.lg,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginBottom: 20,
     textAlign: 'center',
   },
   modalItem: {
-    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 15,
     borderBottomWidth: 1,
-    borderColor: '#ccc',
+    borderBottomColor: theme.colors.border,
   },
   modalText: {
     fontSize: 16,
-    color: '#333',
+    color: theme.colors.text,
   },
   modalClose: {
-    marginTop: 16,
+    marginTop: 20,
+    height: 50,
+    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: theme.colors.background,
+    borderRadius: 15,
   },
   modalCloseText: {
-    color: '#2196F3',
+    color: theme.colors.text,
     fontWeight: 'bold',
-    fontSize: 16,
   },
 });
+
 
 

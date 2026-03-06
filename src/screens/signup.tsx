@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { User, Lock, Mail, ArrowLeft, ShieldCheck } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { theme } from '../utils/theme';
 import { useAuth } from '../providers/AuthProvider';
+
 
 const { width } = Dimensions.get('window');
 
@@ -56,7 +58,7 @@ export default function SignupScreen({ navigation }: { navigation: any }) {
 
     return (
         <LinearGradient
-            colors={['#001F3F', '#003366', '#004080']}
+            colors={[theme.colors.primary, theme.colors.secondary]}
             style={styles.container}
         >
             <KeyboardAvoidingView
@@ -67,12 +69,12 @@ export default function SignupScreen({ navigation }: { navigation: any }) {
                     style={styles.backButton}
                     onPress={() => navigation.goBack()}
                 >
-                    <ArrowLeft color="#fff" size={24} />
+                    <ArrowLeft color={theme.colors.surface} size={24} />
                 </TouchableOpacity>
 
                 <View style={styles.header}>
                     <LinearGradient
-                        colors={['#00e6e6', '#00a8a8']}
+                        colors={[theme.colors.accent, theme.colors.secondary]}
                         style={styles.logoCircle}
                     >
                         <Text style={styles.logoIcon}>$</Text>
@@ -86,11 +88,11 @@ export default function SignupScreen({ navigation }: { navigation: any }) {
 
                     {/* Input Usuario */}
                     <View style={styles.inputContainer}>
-                        <User color="#003366" size={20} style={styles.icon} />
+                        <User color={theme.colors.primary} size={20} style={styles.icon} />
                         <TextInput
                             style={styles.input}
                             placeholder="Nombre de usuario"
-                            placeholderTextColor="#999"
+                            placeholderTextColor={theme.colors.textLight}
                             value={username}
                             onChangeText={setUsername}
                             autoCapitalize="none"
@@ -99,11 +101,11 @@ export default function SignupScreen({ navigation }: { navigation: any }) {
 
                     {/* Input Email */}
                     <View style={styles.inputContainer}>
-                        <Mail color="#003366" size={20} style={styles.icon} />
+                        <Mail color={theme.colors.primary} size={20} style={styles.icon} />
                         <TextInput
                             style={styles.input}
                             placeholder="Gmail / Correo"
-                            placeholderTextColor="#999"
+                            placeholderTextColor={theme.colors.textLight}
                             value={email}
                             onChangeText={setEmail}
                             keyboardType="email-address"
@@ -113,11 +115,11 @@ export default function SignupScreen({ navigation }: { navigation: any }) {
 
                     {/* Input Contraseña */}
                     <View style={styles.inputContainer}>
-                        <Lock color="#003366" size={20} style={styles.icon} />
+                        <Lock color={theme.colors.primary} size={20} style={styles.icon} />
                         <TextInput
                             style={styles.input}
                             placeholder="Contraseña"
-                            placeholderTextColor="#999"
+                            placeholderTextColor={theme.colors.textLight}
                             value={password}
                             onChangeText={setPassword}
                             secureTextEntry={!showPassword}
@@ -130,13 +132,13 @@ export default function SignupScreen({ navigation }: { navigation: any }) {
                         disabled={isLoading}
                     >
                         <LinearGradient
-                            colors={['#0052D4', '#4364F7', '#6FB1FC']}
+                            colors={[theme.colors.primary, theme.colors.secondary, theme.colors.accent]}
                             start={{ x: 0, y: 0 }}
                             end={{ x: 1, y: 0 }}
                             style={styles.gradientButton}
                         >
                             {isLoading ? (
-                                <ActivityIndicator color="#fff" />
+                                <ActivityIndicator color={theme.colors.surface} />
                             ) : (
                                 <Text style={styles.signupButtonText}>Crear Cuenta</Text>
                             )}
@@ -169,86 +171,94 @@ const styles = StyleSheet.create({
     innerContainer: {
         flex: 1,
         justifyContent: 'center',
-        padding: 20,
+        padding: 24,
     },
     backButton: {
         position: 'absolute',
         top: 50,
         left: 20,
         zIndex: 10,
-        padding: 10,
+        width: 44,
+        height: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        borderRadius: 12,
     },
     header: {
         alignItems: 'center',
-        marginBottom: 20,
+        marginBottom: 32,
     },
     logoCircle: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
+        width: 90,
+        height: 90,
+        borderRadius: 45,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 10,
-        elevation: 8,
-        shadowColor: '#00e6e6',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 8,
+        marginBottom: 16,
+        ...theme.shadows.lg,
+        borderWidth: 3,
+        borderColor: 'rgba(255,255,255,0.3)',
     },
     logoIcon: {
-        fontSize: 32,
+        fontSize: 42,
         color: '#fff',
         fontWeight: '900'
     },
     brandName: {
-        fontSize: 26,
+        fontSize: 32,
         fontWeight: '900',
         color: '#fff',
-        letterSpacing: 3,
+        letterSpacing: 4,
+        textShadowColor: 'rgba(0, 0, 0, 0.2)',
+        textShadowOffset: { width: 0, height: 2 },
+        textShadowRadius: 6,
     },
     subtitle: {
-        color: '#00e6e6',
-        fontSize: 14,
-        fontWeight: '600',
-        marginTop: 5,
+        color: 'rgba(255, 255, 255, 0.9)',
+        fontSize: 16,
+        fontWeight: '700',
+        marginTop: 4,
+        letterSpacing: 0.5,
     },
     formCard: {
-        backgroundColor: '#ffffff',
-        borderRadius: 20,
-        padding: 20,
-        shadowColor: '#000',
-        elevation: 12,
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        borderRadius: 32,
+        padding: 24,
+        ...theme.shadows.lg,
     },
     loginTitle: {
-        fontSize: 20,
+        fontSize: 24,
         fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 20,
+        color: theme.colors.text,
+        marginBottom: 24,
         textAlign: 'center',
     },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f5f7fa',
-        borderRadius: 12,
-        paddingHorizontal: 15,
-        marginBottom: 15,
-        height: 50,
+        backgroundColor: '#f8fafc',
+        borderRadius: 18,
+        paddingHorizontal: 16,
+        marginBottom: 16,
+        height: 56,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
     },
     icon: {
-        marginRight: 10,
-        opacity: 0.8,
+        marginRight: 12,
     },
     input: {
         flex: 1,
-        fontSize: 15,
-        color: '#333',
+        fontSize: 16,
+        color: theme.colors.text,
     },
     signupButton: {
-        height: 50,
-        borderRadius: 12,
+        height: 56,
+        borderRadius: 18,
         overflow: 'hidden',
-        marginTop: 10,
+        marginTop: 8,
+        ...theme.shadows.md,
     },
     gradientButton: {
         flex: 1,
@@ -257,33 +267,36 @@ const styles = StyleSheet.create({
     },
     signupButtonText: {
         color: '#fff',
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: '800',
-        letterSpacing: 0.8,
+        letterSpacing: 1,
     },
     footerLinks: {
         flexDirection: 'row',
         justifyContent: 'center',
-        marginTop: 20,
+        marginTop: 24,
     },
     noAccountText: {
-        color: '#777',
-        fontSize: 13,
+        color: theme.colors.textLight,
+        fontSize: 14,
     },
     registerText: {
-        color: '#0052D4',
+        color: theme.colors.primary,
         fontWeight: '800',
-        fontSize: 13,
+        fontSize: 14,
+        marginLeft: 6,
     },
     securityRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        marginTop: 30,
+        marginTop: 24,
     },
     encryptionText: {
-        color: 'rgba(255, 255, 255, 0.6)',
-        fontSize: 11,
-        marginLeft: 5,
+        color: 'rgba(255, 255, 255, 0.7)',
+        fontSize: 12,
+        marginLeft: 8,
+        fontWeight: '600',
     }
 });
+
